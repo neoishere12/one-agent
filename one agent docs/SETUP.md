@@ -291,7 +291,10 @@ export BLINKIT_BROWSER_PROXY_PASSWORD=<password>
 Worker health check:
 ```bash
 curl -sS http://127.0.0.1:42199/health
+curl -sS http://127.0.0.1:42199/status
 ```
+
+`/status` helps confirm whether the browser profile currently has access/auth tokens and whether a challenge page is detected before running `search_product`.
 
 For systemd, add the same vars to `/etc/shopping-agent.env`, then:
 

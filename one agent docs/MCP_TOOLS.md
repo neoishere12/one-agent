@@ -233,6 +233,9 @@ In browser mode, Blinkit search can run even when no Blinkit API session was ing
 To avoid browser relaunch on every search, run helper worker mode once:
 - `node scripts/blinkit-browser-search.mjs --worker --worker-port 42199`
 - set `BLINKIT_BROWSER_WORKER_URL=http://127.0.0.1:42199` on the server
+- worker diagnostics:
+  - `GET /health` -> worker liveness
+  - `GET /status` -> token presence + challenge detection snapshot
 
 **Errors:**
 - `ErrSessionNotFound` — session missing for one of the requested apps
@@ -240,6 +243,7 @@ To avoid browser relaunch on every search, run helper worker mode once:
 - Partial results are returned even if one platform fails — failed apps listed in `errors` field
 - Browser mode can return:
   - `human_verification_required: ...` when Blinkit anti-bot challenge is detected
+  - successful results can come from DOM extraction fallback when direct network interception is blocked
 
 ---
 

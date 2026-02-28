@@ -149,9 +149,13 @@ systemctl restart blinkit-browser-worker
 systemctl restart shopping-agent
 ```
 
+Do not keep placeholder values (`<proxy-host>`, `<username>`, `<password>`) in `/etc/shopping-agent.env`; replace them with real proxy credentials or remove these keys entirely.
+
 3. Re-test worker directly:
 
 ```bash
+curl -sS http://127.0.0.1:42199/status
+
 curl -sS --max-time 80 http://127.0.0.1:42199/search \
   -H 'Content-Type: application/json' \
   -d '{"query":"amul lassi","timeout_seconds":35,"lat":18.6456,"lng":73.8852}'

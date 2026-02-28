@@ -555,6 +555,20 @@ async function runSearch(context, page, query, lat, lng, timeout) {
     };
   }
 
+  const domProducts = await extractProductsFromDOM(page, query);
+  if (domProducts.length > 0) {
+    debugLog(`dom extraction yielded products=${domProducts.length}`);
+    return {
+      ok: true,
+      url: page.url(),
+      status: 200,
+      raw: {
+        products: domProducts,
+        source: "dom",
+      },
+    };
+  }
+
   debugLog("network interception miss; using in-page fetch fallback");
   const fallback = await fetchSearchViaPage(page, query, lat, lng, budget.fetchMs);
   return {
@@ -593,6 +607,221 @@ function splitSearchBudget(totalMs) {
   }
 
   return { directMs, homeMs, fetchMs };
+}
+
+async function extractProductsFromDOM(page, query) {
+  return page.evaluate(({ query }) => {
+    const normalize = (value) => (typeof value === "string" ? value.trim() : "");
+    const toNumber = (value) => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+      }
+      if (typeof value === "string") {
+        const cleaned = value.replace(/[^\d.]/g, "");
+        if (!cleaned) {
+          return null;
+        }
+        const parsed = Number.parseFloat(cleaned);
+        if (Number.isFinite(parsed)) {
+          return parsed;
+        }
+      }
+      return null;
+    };
+    const toBool = (value, fallback = true) => {
+      if (typeof value === "boolean") {
+        return value;
+      }
+      if (typeof value === "number") {
+        return value > 0;
+      }
+      if (typeof value === "string") {
+        const lowered = value.toLowerCase();
+        if (["true", "yes", "in_stock", "available"].includes(lowered)) {
+          return true;
+        }
+        if (["false", "no", "out_of_stock", "unavailable"].includes(lowered)) {
+          return false;
+        }
+      }
+      return fallback;
+    };
+    const mapString = (obj, keys) => {
+      for (const key of keys) {
+        const value = normalize(obj?.[key]);
+        if (value) {
+          return value;
+        }
+      }
+      return "";
+    };
+    const mapFloat = (obj, keys) => {
+      for (const key of keys) {
+        const value = toNumber(obj?.[key]);
+        if (value !== null) {
+          return value;
+        }
+      }
+      return null;
+    };
+    const seen = new Set();
+    const products = [];
+    const append = (candidate) => {
+      const id = normalize(candidate.id || candidate.product_id);
+      const name = normalize(candidate.name || candidate.title || candidate.product_name);
+      const price = toNumber(candidate.price ?? candidate.selling_price ?? candidate.final_price);
+      if (!name || price === null) {
+        return;
+      }
+      const key = id || `${name.toLowerCase()}::${price}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      const mrp = toNumber(candidate.mrp ?? candidate.original_price) ?? price;
+      products.push({
+        id: id || key,
+        name,
+        brand: normalize(candidate.brand),
+        price,
+        mrp,
+        unit: normalize(candidate.unit || candidate.quantity),
+        store_id: normalize(candidate.store_id || candidate.storeId),
+        in_stock: toBool(
+          candidate.in_stock ?? candidate.is_available ?? candidate.available ?? candidate.stock,
+          true
+        ),
+      });
+    };
+
+    const walk = (value) => {
+      if (!value) {
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach(walk);
+        return;
+      }
+      if (typeof value !== "object") {
+        return;
+      }
+      append({
+        id: mapString(value, ["id", "product_id", "variant_id", "sku", "entity_id"]),
+        name: mapString(value, ["name", "title", "product_name"]),
+        brand: mapString(value, ["brand", "brand_name"]),
+        price: mapFloat(value, ["price", "selling_price", "final_price", "sp"]),
+        mrp: mapFloat(value, ["mrp", "original_price", "list_price"]),
+        unit: mapString(value, ["unit", "quantity", "pack_size"]),
+        in_stock: value.in_stock ?? value.available ?? value.is_available ?? value.stock,
+        store_id: mapString(value, ["store_id", "storeId", "store"]),
+      });
+      Object.values(value).forEach(walk);
+    };
+
+    // Try extracting from embedded JSON blobs first.
+    const scripts = Array.from(document.querySelectorAll("script"));
+    for (const script of scripts) {
+      const text = script.textContent || "";
+      if (!text || text.length > 1_500_000) {
+        continue;
+      }
+      const trimmed = text.trim();
+      if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+        continue;
+      }
+      try {
+        walk(JSON.parse(trimmed));
+      } catch {
+        // ignore non-JSON scripts
+      }
+    }
+
+    // Try common in-memory state stores.
+    try {
+      if (window.__NEXT_DATA__) {
+        walk(window.__NEXT_DATA__);
+      }
+    } catch {}
+    try {
+      if (window.__INITIAL_STATE__) {
+        walk(window.__INITIAL_STATE__);
+      }
+    } catch {}
+    try {
+      if (window.__APOLLO_STATE__) {
+        walk(window.__APOLLO_STATE__);
+      }
+    } catch {}
+
+    // DOM text fallback for visible cards.
+    if (products.length === 0) {
+      const cards = Array.from(
+        document.querySelectorAll(
+          '[data-testid*="product"], [class*="product"], [class*="Product"]'
+        )
+      ).slice(0, 80);
+      for (const card of cards) {
+        const text = (card.textContent || "").replace(/\s+/g, " ").trim();
+        if (!text) {
+          continue;
+        }
+        const priceMatch = text.match(/(?:₹|Rs\.?)\s*([0-9]+(?:\.[0-9]+)?)/i);
+        if (!priceMatch) {
+          continue;
+        }
+        const nameLine = text
+          .split(/₹|Rs\.?/i)[0]
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        if (!nameLine) {
+          continue;
+        }
+        append({
+          id: "",
+          name: nameLine,
+          price: priceMatch[1],
+          mrp: priceMatch[1],
+          in_stock: !/out of stock/i.test(text),
+        });
+      }
+    }
+
+    const q = normalize(query).toLowerCase();
+    const ranked = products
+      .map((p) => {
+        const name = normalize(p.name).toLowerCase();
+        const score = q && name.includes(q) ? 2 : q && q.split(/\s+/).some((t) => name.includes(t)) ? 1 : 0;
+        return { score, product: p };
+      })
+      .sort((a, b) => b.score - a.score || a.product.price - b.product.price)
+      .map((item) => item.product);
+
+    return ranked.slice(0, 40);
+  }, { query });
+}
+
+async function sessionStatusSnapshot(page) {
+  return page.evaluate(() => {
+    const safeGet = (...keys) => {
+      for (const key of keys) {
+        const value = window.localStorage.getItem(key);
+        if (typeof value === "string" && value.trim()) {
+          return value.trim();
+        }
+      }
+      return "";
+    };
+    const title = document.title || "";
+    const body = (document.body && document.body.innerText) || "";
+    const access = safeGet("gr_1_accessToken", "access_token", "accessToken");
+    const authKey = safeGet("auth_key", "gr_1_authKey");
+    return {
+      title,
+      body: body.slice(0, 4000),
+      accessTokenPresent: Boolean(access),
+      authKeyPresent: Boolean(authKey),
+    };
+  });
 }
 
 function decodeMaybe(value) {
@@ -712,8 +941,13 @@ function buildBootstrapResult(snapshot) {
 }
 
 async function runBootstrapFlow(context, page, timeout) {
+  const challengeError =
+    "human_verification_required: blinkit anti-bot challenge detected in browser session";
   const deadline = newDeadline(timeout);
   await page.goto("https://blinkit.com/", { waitUntil: "domcontentloaded", timeout });
+  if (await pageLooksLikeChallenge(page)) {
+    return { ok: false, error: challengeError };
+  }
   let snapshot = await readSessionSnapshot(context, page);
   if (snapshot.accessToken) {
     return buildBootstrapResult(snapshot);
@@ -721,14 +955,22 @@ async function runBootstrapFlow(context, page, timeout) {
   debugLog("bootstrap awaiting login/session in persistent profile");
   while (Date.now() < deadline) {
     await page.waitForTimeout(2000);
+    if (await pageLooksLikeChallenge(page)) {
+      return { ok: false, error: challengeError };
+    }
     snapshot = await readSessionSnapshot(context, page);
     if (snapshot.accessToken) {
       return buildBootstrapResult(snapshot);
     }
   }
+  const status = await sessionStatusSnapshot(page);
+  if (textContainsChallenge(`${status.title}\n${status.body}`)) {
+    return { ok: false, error: challengeError };
+  }
+  const titlePart = status.title ? `; page_title="${status.title}"` : "";
   return {
     ok: false,
-    error: "access token not found in browser profile; complete Blinkit login and retry bootstrap",
+    error: `access token not found in browser profile; complete Blinkit login and retry bootstrap${titlePart}`,
   };
 }
 
@@ -769,6 +1011,25 @@ async function runWorker(args) {
   const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/health") {
       writeJSON(res, 200, { status: "ok" });
+      return;
+    }
+    if (req.method === "GET" && req.url === "/status") {
+      try {
+        const status = await enqueueTask(state, async () => {
+          const snapshot = await sessionStatusSnapshot(page);
+          return {
+            ok: true,
+            page_url: page.url(),
+            title: snapshot.title,
+            access_token_present: snapshot.accessTokenPresent,
+            auth_key_present: snapshot.authKeyPresent,
+            challenge_detected: textContainsChallenge(`${snapshot.title}\n${snapshot.body}`),
+          };
+        });
+        writeJSON(res, 200, status);
+      } catch (err) {
+        writeJSON(res, 200, { ok: false, error: cleanError(err) });
+      }
       return;
     }
     if (req.method !== "POST" || (req.url !== "/search" && req.url !== "/bootstrap")) {

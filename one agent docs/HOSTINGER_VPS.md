@@ -128,3 +128,31 @@ Back up this file securely.
 - This removes Mac popup dependency by running browser automation on VPS.
 - Anti-bot checks can still happen depending on account/session risk scoring.
 - If you already have `/etc/shopping-agent.env`, bootstrap will reuse it and not rotate secrets.
+
+### VPS anti-bot challenge handling
+
+If Blinkit returns `human_verification_required` or a `403` challenge page from worker search, your VPS egress is being challenged.
+
+Use compliant mitigations:
+
+1. Keep a real logged-in browser profile in `/opt/one-agent/.data/blinkit-browser-profile`.
+2. Configure browser proxy egress (residential/business approved):
+
+```bash
+cat >> /etc/shopping-agent.env <<'EOF'
+BLINKIT_BROWSER_PROXY_SERVER=http://<proxy-host>:<port>
+BLINKIT_BROWSER_PROXY_USERNAME=<username>
+BLINKIT_BROWSER_PROXY_PASSWORD=<password>
+EOF
+
+systemctl restart blinkit-browser-worker
+systemctl restart shopping-agent
+```
+
+3. Re-test worker directly:
+
+```bash
+curl -sS --max-time 80 http://127.0.0.1:42199/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"amul lassi","timeout_seconds":35,"lat":18.6456,"lng":73.8852}'
+```

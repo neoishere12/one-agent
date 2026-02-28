@@ -222,6 +222,10 @@ If Blinkit replay sessions repeatedly fail with `403` / `device fingerprint` err
 - `BLINKIT_BROWSER_TIMEOUT=45s`
 - `BLINKIT_BROWSER_PROFILE_DIR=.data/blinkit-browser-profile`
 - `BLINKIT_BROWSER_HEADLESS=true` (set `false` for first-time login bootstrap)
+- Optional proxy egress on VPS:
+  - `BLINKIT_BROWSER_PROXY_SERVER=http://<proxy-host>:<port>`
+  - `BLINKIT_BROWSER_PROXY_USERNAME=<username>`
+  - `BLINKIT_BROWSER_PROXY_PASSWORD=<password>`
 
 In this mode, Blinkit `search_product` uses Playwright and a persistent Chromium profile to obtain live `/v1/layout/search` payloads from `blinkit.com`.
 In browser mode, Blinkit search can run even when no Blinkit API session was ingested.
@@ -234,6 +238,8 @@ To avoid browser relaunch on every search, run helper worker mode once:
 - `ErrSessionNotFound` — session missing for one of the requested apps
 - `ErrTokenExpired` — token expired and refresh failed (re-capture needed)
 - Partial results are returned even if one platform fails — failed apps listed in `errors` field
+- Browser mode can return:
+  - `human_verification_required: ...` when Blinkit anti-bot challenge is detected
 
 ---
 

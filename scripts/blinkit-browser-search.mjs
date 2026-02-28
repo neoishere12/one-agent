@@ -11,6 +11,15 @@ const DEFAULT_WORKER_PORT = 42199;
 const DEFAULT_WORKER_BIND = "127.0.0.1";
 const SEARCH_HOST_SUFFIX = "blinkit.com";
 const SEARCH_PATH = "/v1/layout/search";
+const CHALLENGE_MARKERS = [
+  "just a moment",
+  "attention required",
+  "verify you are human",
+  "cloudflare ray id",
+  "cf-challenge",
+  "captcha",
+  "access denied",
+];
 
 function parseArgs(argv) {
   const args = {
@@ -367,6 +376,9 @@ async function fetchSearchViaPage(page, query, lat, lng, timeout) {
     throw new Error(`in-page fetch failed: ${raw.error}`);
   }
   if (!raw.ok) {
+    if (raw.status === 403 && textContainsChallenge(raw.text)) {
+      throw new Error("human_verification_required: anti-bot challenge page returned 403");
+    }
     let snippet = "";
     if (typeof raw.text === "string" && raw.text.trim()) {
       snippet = raw.text.replace(/\s+/g, " ").trim().slice(0, 180);
@@ -397,6 +409,14 @@ function cleanError(err) {
   }
   const message = typeof err === "string" ? err : err.message || String(err);
   return message.replace(/\s+/g, " ").trim();
+}
+
+function textContainsChallenge(text) {
+  if (typeof text !== "string" || !text.trim()) {
+    return false;
+  }
+  const lower = text.toLowerCase();
+  return CHALLENGE_MARKERS.some((marker) => lower.includes(marker));
 }
 
 function writeJSON(res, status, payload) {
@@ -456,6 +476,18 @@ async function launchBrowserSession(chromium, timeout) {
     locale: "en-IN",
     timezoneId: "Asia/Kolkata",
   };
+  const proxyServer = String(process.env.BLINKIT_BROWSER_PROXY_SERVER || "").trim();
+  if (proxyServer) {
+    launchOptions.proxy = { server: proxyServer };
+    const proxyUsername = String(process.env.BLINKIT_BROWSER_PROXY_USERNAME || "").trim();
+    const proxyPassword = String(process.env.BLINKIT_BROWSER_PROXY_PASSWORD || "").trim();
+    if (proxyUsername) {
+      launchOptions.proxy.username = proxyUsername;
+    }
+    if (proxyPassword) {
+      launchOptions.proxy.password = proxyPassword;
+    }
+  }
   if (process.env.BLINKIT_BROWSER_EXECUTABLE_PATH) {
     launchOptions.executablePath = process.env.BLINKIT_BROWSER_EXECUTABLE_PATH;
   }
@@ -465,6 +497,19 @@ async function launchBrowserSession(chromium, timeout) {
   context.setDefaultNavigationTimeout(timeout);
   const page = context.pages()[0] ?? (await context.newPage());
   return { context, page, headless };
+}
+
+async function pageLooksLikeChallenge(page) {
+  try {
+    const snapshot = await page.evaluate(() => {
+      const title = document.title || "";
+      const body = (document.body && document.body.innerText) || "";
+      return `${title}\n${body.slice(0, 4000)}`;
+    });
+    return textContainsChallenge(snapshot);
+  } catch {
+    return false;
+  }
 }
 
 async function applyGeolocation(context, lat, lng) {
@@ -481,6 +526,12 @@ async function runSearch(context, page, query, lat, lng, timeout) {
   const searchURL = `https://blinkit.com/s/?q=${encodeURIComponent(query)}`;
 
   let response = await waitForSearchFromUrl(page, searchURL, budget.directMs);
+  if (!response && (await pageLooksLikeChallenge(page))) {
+    return {
+      ok: false,
+      error: "human_verification_required: blinkit anti-bot challenge detected in browser session",
+    };
+  }
   if (!response) {
     debugLog("direct URL search response not observed, trying home-page fallback");
     response = await waitForSearchFromHome(page, query, budget.homeMs);
@@ -494,6 +545,13 @@ async function runSearch(context, page, query, lat, lng, timeout) {
       url: response.url(),
       status: response.status(),
       raw: body,
+    };
+  }
+
+  if (await pageLooksLikeChallenge(page)) {
+    return {
+      ok: false,
+      error: "human_verification_required: blinkit anti-bot challenge detected in browser session",
     };
   }
 

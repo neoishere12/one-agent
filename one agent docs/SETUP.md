@@ -281,6 +281,13 @@ export BLINKIT_BROWSER_BOOTSTRAP_TIMEOUT=5m
 ./bin/server
 ```
 
+Optional (VPS-only when datacenter egress is challenged):
+```bash
+export BLINKIT_BROWSER_PROXY_SERVER=http://<proxy-host>:<port>
+export BLINKIT_BROWSER_PROXY_USERNAME=<username>
+export BLINKIT_BROWSER_PROXY_PASSWORD=<password>
+```
+
 Worker health check:
 ```bash
 curl -sS http://127.0.0.1:42199/health

@@ -3,6 +3,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/one-agent}"
 BRANCH="${BRANCH:-main}"
+RUN_TESTS="${RUN_TESTS:-1}"
 
 log() {
   printf '[deploy] %s\n' "$*"
@@ -36,8 +37,19 @@ deploy_code() {
 
 build_binaries() {
   cd "${APP_DIR}"
-  log "Running Go tests"
-  go test ./...
+  if [[ "${RUN_TESTS}" == "1" ]]; then
+    log "Running Go tests"
+    env \
+      -u BLINKIT_SEARCH_MODE \
+      -u BLINKIT_BROWSER_WORKER_URL \
+      -u BLINKIT_BROWSER_HELPER \
+      -u BLINKIT_BROWSER_NODE \
+      -u BLINKIT_BROWSER_TIMEOUT \
+      -u BLINKIT_BROWSER_TIMEOUT_MS \
+      go test ./...
+  else
+    log "Skipping tests (RUN_TESTS=${RUN_TESTS})"
+  fi
 
   log "Building binaries"
   go build -o ./bin/server ./cmd/server

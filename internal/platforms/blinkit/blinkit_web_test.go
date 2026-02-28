@@ -13,6 +13,8 @@ import (
 
 func seedWebSession(t *testing.T, s *store.Store) {
 	t.Helper()
+	// Ensure unit tests run in API mode even if host env is set to browser mode.
+	t.Setenv("BLINKIT_SEARCH_MODE", "")
 	sess := &types.AppSession{
 		App:          types.PlatformBlinkit,
 		AccessToken:  "web-access-token",

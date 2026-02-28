@@ -95,6 +95,18 @@ systemctl restart blinkit-browser-worker
 systemctl restart shopping-agent
 ```
 
+Manual deploy command (from VPS):
+
+```bash
+APP_DIR=/opt/one-agent BRANCH=main /opt/one-agent/deploy/hostinger/deploy.sh
+```
+
+Emergency bypass (skip tests for one run only):
+
+```bash
+RUN_TESTS=0 APP_DIR=/opt/one-agent BRANCH=main /opt/one-agent/deploy/hostinger/deploy.sh
+```
+
 ---
 
 ## 6) Important env file

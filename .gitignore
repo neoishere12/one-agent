@@ -1,0 +1,22 @@
+# Secrets & keys — never commit
+.env
+certs/ca.key
+
+# Database
+data/
+
+# Build output
+bin/
+
+# macOS
+.DS_Store
+
+# Go test cache
+*.test
+.gocache/
+
+# Capture exports (contain tokens/session data)
+*.har
+
+# Browser profile/session artifacts
+.data/

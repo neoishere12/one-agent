@@ -19,7 +19,7 @@ A silent quick commerce shopping agent. You call MCP tools via Claude. Orders ar
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Domain map, package layering, dependency rules |
 | [docs/DESIGN.md](docs/DESIGN.md) | HLD, component responsibilities, data flows |
-| [docs/SETUP.md](docs/SETUP.md) | One-time VPS + WireGuard + CA cert setup guide |
+| [docs/SETUP.md](docs/SETUP.md) | One-time VPS + Proxyman iPhone capture + HAR import setup guide |
 | [docs/PLATFORMS.md](docs/PLATFORMS.md) | Per-platform API contracts, endpoint map, known quirks |
 | [docs/TOKENS.md](docs/TOKENS.md) | Token lifecycle, refresh strategy, expiry handling |
 | [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) | All exposed MCP tool specs, inputs, outputs, error contracts |
@@ -40,7 +40,7 @@ types → config → store → platforms → mcp → cmd
 - `config` — env/config loading, imports types only
 - `store` — encrypted SQLite, imports types + config
 - `platforms` — per-app API clients, imports store + types
-- `mcp` — tool handlers, imports platforms + store
+- `mcp` — tool handlers + `/sessions/ingest` endpoint, imports platforms + store
 - `cmd` — entrypoints only, imports mcp
 
 Violations are caught by structural tests in `tests/arch_test.go`. **Do not bypass.**
@@ -80,6 +80,7 @@ Violations are caught by structural tests in `tests/arch_test.go`. **Do not bypa
 cp .env.example .env        # fill in STORE_MASTER_KEY
 go run ./cmd/server         # starts MCP server on :8080
 go run ./cmd/refresher      # runs token refresh once then exits
+go run ./cmd/proxyman-watch -dir ./tmp-har -dry-run -diagnostics  # auto-parse local HAR drop folder
 go test ./...               # runs all tests including arch tests
 ```
 
@@ -95,4 +96,4 @@ go test ./...               # runs all tests including arch tests
 
 ---
 
-*Last verified: 2026-02-26 | Maintained by agents + Nitin*
+*Last verified: 2026-02-27 — automated HAR ingest loop (`proxyman-watch`) + importer app auto-detection | Maintained by agents + Nitin*

@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go mod init one-agent)",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go get modernc.org/sqlite@latest 2>&1 | tail -5)",
+      "Bash(go build ./internal/types/... 2>&1)",
+      "Bash(go build ./internal/config/... 2>&1)",
+      "Bash(go test ./internal/store/... -v 2>&1)",
+      "Bash(go test ./tests/... -v 2>&1)",
+      "Bash(go test ./... -v 2>&1)",
+      "Bash(go test ./internal/platforms/... -v 2>&1 | grep -E \"^\\(=== RUN|--- |PASS|FAIL|ok\\)\")",
+      "Bash(go test ./internal/refresh/... -v 2>&1 | grep -E \"^\\(=== RUN|--- |PASS|FAIL|ok\\)\")",
+      "Bash(go test ./... 2>&1 | grep -E \"^\\(ok|FAIL|---\\)\")",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test -v ./internal/... ./tests/... 2>&1 | grep -E \"^\\(=== RUN|--- PASS|--- FAIL|FAIL|ok\\)\" | head -80)",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test -v ./internal/... ./tests/... 2>&1 | grep -E \"^\\(=== RUN|--- PASS|--- FAIL|FAIL|ok\\)\" | tail -50)",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go build ./... 2>&1)",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test ./internal/... ./tests/... ./cmd/... 2>&1)",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test ./internal/... ./tests/... 2>&1 | grep -E \"^\\(=== RUN|--- PASS|--- FAIL|FAIL|ok|panic\\)\" | head -60)",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test -v ./internal/... ./tests/... 2>&1 | grep -E \"^\\(--- PASS|--- FAIL\\)\" | wc -l)",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test -v ./tests/... 2>&1 | grep -E \"^\\(=== RUN|--- PASS|--- FAIL\\)\")",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test ./tests/... -run TestFileSizeLimits -v 2>&1 | tail -5)",
+      "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test ./internal/mcp/... -v 2>&1 | grep -E \"^\\(=== RUN|--- PASS|--- FAIL|FAIL|ok\\)\")",
+      "Bash(go test ./internal/... ./tests/... 2>&1 | grep -E \"^\\(ok|FAIL\\)\")"
+    ]
+  }
+}

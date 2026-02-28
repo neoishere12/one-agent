@@ -1,0 +1,18 @@
+[Unit]
+Description=One-Agent Token Refresher (one-shot)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=shopping-agent
+Group=shopping-agent
+WorkingDirectory=/opt/one-agent
+EnvironmentFile=/etc/shopping-agent.env
+ExecStart=/opt/one-agent/bin/refresher
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/one-agent/data
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,25 @@
+[Unit]
+Description=One-Agent Blinkit Browser Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=shopping-agent
+Group=shopping-agent
+WorkingDirectory=/opt/one-agent
+EnvironmentFile=/etc/shopping-agent.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/one-agent/scripts/blinkit-browser-search.mjs --worker --worker-port 42199
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/one-agent/.data /opt/one-agent/.cache
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

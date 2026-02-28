@@ -1,0 +1,25 @@
+[Unit]
+Description=One-Agent MCP Server
+After=network-online.target blinkit-browser-worker.service
+Wants=network-online.target blinkit-browser-worker.service
+
+[Service]
+Type=simple
+User=shopping-agent
+Group=shopping-agent
+WorkingDirectory=/opt/one-agent
+EnvironmentFile=/etc/shopping-agent.env
+ExecStart=/opt/one-agent/bin/server
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/one-agent/data /opt/one-agent/.data
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

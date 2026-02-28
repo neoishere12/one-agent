@@ -83,7 +83,7 @@ Re-capture (`capture_session`) is needed when:
 - App major version update changes auth flow
 - `list_sessions` shows `token_valid: false`
 
-Re-capture does NOT require reinstalling the CA cert or reconfiguring WireGuard. Just open the app on iPhone with WireGuard active and MITM proxy running.
+Re-capture does NOT require rebuilding the VPS. Re-open Proxyman on iPhone, capture the target app again, export HAR, then ingest via `proxyman-import` (one-shot) or `proxyman-watch` (automated folder loop).
 
 ---
 

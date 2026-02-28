@@ -59,7 +59,7 @@ If you add a lint rule, write the fix instruction in the error message.
 
 ## 7. Setup Is One-Time; Runtime Is Zero-Touch
 
-The MITM proxy, WireGuard tunnel, and CA cert installation happen once. They are not part of the normal operation loop. Any change that requires re-running setup steps is a breaking change and needs a migration note in SETUP.md.
+The VPS deployment, ingest secret setup, and Proxyman CA trust happen once. They are not part of the normal operation loop. Any change that requires re-running setup steps is a breaking change and needs a migration note in SETUP.md.
 
 ---
 

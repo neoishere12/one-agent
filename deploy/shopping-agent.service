@@ -1,0 +1,22 @@
+[Unit]
+Description=Shopping Agent MCP Server
+After=network.target
+Documentation=https://github.com/nitin/shopping-agent
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/shopping-agent
+EnvironmentFile=/etc/shopping-agent.env
+ExecStart=/opt/shopping-agent/bin/server
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+# Harden process
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

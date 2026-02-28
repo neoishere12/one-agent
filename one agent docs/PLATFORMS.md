@@ -23,11 +23,13 @@ type Platform interface {
 
 ## Blinkit
 
-**Base URL:** `https://api.blinkit.com` (verify from captured traffic)
+**Base URL:** `https://api2.grofers.com` (VERIFIED from live capture on 2026-02-27)
 
 **Known Headers (capture and freeze):**
 ```
 Authorization: Bearer <access_token>
+access_token: <access_token>        # commonly used by Blinkit app requests
+auth_key: <refresh_token-like key>  # commonly used by Blinkit app requests
 x-device-id: <captured — freeze forever>
 x-app-version: <captured — update on major app updates>
 x-platform: ios
@@ -42,7 +44,7 @@ Content-Type: application/json
 
 | Operation | Method | Path | Status |
 |---|---|---|---|
-| Search | POST | `/v3/search` | PENDING CAPTURE |
+| Search | POST | `/v1/layout/search?q=<query>&search_type=type_to_search` | VERIFIED |
 | Add to cart | POST | `/v2/cart/items` | PENDING CAPTURE |
 | Checkout init | POST | `/v2/checkout/init` | PENDING CAPTURE |
 | Confirm payment | POST | `/v2/checkout/confirm` | PENDING CAPTURE |
@@ -52,7 +54,8 @@ Content-Type: application/json
 | Payment methods | GET | `/v2/payment-methods` | PENDING CAPTURE |
 
 **Known Quirks:**
-- None documented yet — populate after first capture session
+- Search response shape is nested layout/snippet JSON (not a flat `products` list); parser fallback may be needed.
+- Some address hints appear in query params (for example `fetch_nearest_addresses=true`) while path may not contain `address`.
 
 ---
 

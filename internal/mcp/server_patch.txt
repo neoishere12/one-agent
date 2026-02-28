@@ -1,0 +1,70 @@
+--- PATCH server.go ---
+
+1. Add `hub` field to Server struct:
+
+type Server struct {
+    st            *store.Store
+    platforms     map[types.Platform]platforms.Platform
+    ingestSecret  string
+    ingestLimiter *ingestRateLimiter
+    now           func() time.Time
+    searchLimit   time.Duration
+    hub           *sseHub          // ← ADD THIS
+}
+
+
+2. Initialize hub in New():
+
+s := &Server{
+    st:            st,
+    platforms:     cloneClients(clients),
+    ingestLimiter: newIngestRateLimiter(10, time.Minute),
+    now:           time.Now,
+    searchLimit:   10 * time.Second,
+    hub:           newSSEHub(),    // ← ADD THIS
+}
+
+
+3. Update ServeHTTP to route /sse and /mcp:
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    if s.handleHealth(w, r) {
+        return
+    }
+    if s.handleIngest(w, r) {
+        return
+    }
+
+    switch r.URL.Path {
+    case "/sse":
+        if r.Method == http.MethodOptions {
+            writeNoContent(w)
+            return
+        }
+        s.handleSSE(w, r)
+    case "/mcp":
+        if r.Method == http.MethodOptions {
+            writeNoContent(w)
+            return
+        }
+        if r.Method == http.MethodPost {
+            s.handleMCPPost(w, r)
+            return
+        }
+        // GET /mcp — info response (keep existing behaviour)
+        writeJSON(w, http.StatusOK, map[string]any{
+            "status": "ok",
+            "transport": map[string]any{"type": "jsonrpc-http"},
+        })
+    default:
+        writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+    }
+}
+
+
+4. Remove handleMCPPreflight and handleRPCPost methods
+   (their logic is now in handleMCPPost and ServeHTTP above)
+
+
+5. Add import in server.go (if not already present via sse.go):
+   "github.com/google/uuid"   ← already in go.mod ✓

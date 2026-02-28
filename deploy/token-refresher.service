@@ -1,0 +1,17 @@
+[Unit]
+Description=Shopping Agent Token Refresher (one-shot)
+After=network.target
+Documentation=https://github.com/nitin/shopping-agent
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/shopping-agent
+EnvironmentFile=/etc/shopping-agent.env
+ExecStart=/opt/shopping-agent/bin/refresher
+StandardOutput=journal
+StandardError=journal
+
+# Harden process
+NoNewPrivileges=true
+PrivateTmp=true

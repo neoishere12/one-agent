@@ -1,0 +1,11 @@
+[Unit]
+Description=One-Agent Token Refresh Timer
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=4h
+Unit=token-refresher.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

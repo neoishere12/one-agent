@@ -1,0 +1,15 @@
+[Unit]
+Description=Shopping Agent Token Refresh Timer
+Documentation=https://github.com/nitin/shopping-agent
+
+[Timer]
+# Run 5 minutes after boot (gives server time to start)
+OnBootSec=5min
+# Then every 4 hours (matches TOKEN_REFRESH_INTERVAL default)
+OnUnitActiveSec=4h
+Unit=token-refresher.service
+# Persist timer across reboots so missed runs are caught
+Persistent=true
+
+[Install]
+WantedBy=timers.target

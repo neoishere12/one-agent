@@ -8,12 +8,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type browserWorkerRequest struct {
-	Query string   `json:"query"`
-	Lat   *float64 `json:"lat,omitempty"`
-	Lng   *float64 `json:"lng,omitempty"`
+	Query          string   `json:"query"`
+	Lat            *float64 `json:"lat,omitempty"`
+	Lng            *float64 `json:"lng,omitempty"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
 }
 
 type browserBootstrapWorkerRequest struct {
@@ -26,7 +28,7 @@ func queryBrowserWorker(
 	query string,
 	lat, lng float64,
 ) (*browserBridgeOutput, error) {
-	out, err := postBrowserWorker(ctx, baseURL, "/search", newWorkerRequest(query, lat, lng))
+	out, err := postBrowserWorker(ctx, baseURL, "/search", newWorkerRequest(ctx, query, lat, lng))
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +44,9 @@ func bootstrapBrowserWorker(
 	baseURL string,
 	timeoutSeconds int,
 ) (*browserBootstrapOutput, error) {
+	if remaining := contextTimeoutSeconds(ctx); remaining > 0 && (timeoutSeconds <= 0 || remaining < timeoutSeconds) {
+		timeoutSeconds = remaining
+	}
 	req := browserBootstrapWorkerRequest{TimeoutSeconds: timeoutSeconds}
 	out, err := postBrowserWorker(ctx, baseURL, "/bootstrap", req)
 	if err != nil {
@@ -81,7 +86,7 @@ func postBrowserWorker(
 	return out, nil
 }
 
-func newWorkerRequest(query string, lat, lng float64) browserWorkerRequest {
+func newWorkerRequest(ctx context.Context, query string, lat, lng float64) browserWorkerRequest {
 	req := browserWorkerRequest{Query: query}
 	if lat != 0 {
 		req.Lat = &lat
@@ -89,5 +94,25 @@ func newWorkerRequest(query string, lat, lng float64) browserWorkerRequest {
 	if lng != 0 {
 		req.Lng = &lng
 	}
+	req.TimeoutSeconds = contextTimeoutSeconds(ctx)
 	return req
+}
+
+func contextTimeoutSeconds(ctx context.Context) int {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return 0
+	}
+	remaining := deadline.Sub(time.Now())
+	if remaining <= 0 {
+		return 1
+	}
+	secs := int(remaining.Seconds())
+	if remaining > time.Duration(secs)*time.Second {
+		secs++
+	}
+	if secs <= 0 {
+		return 1
+	}
+	return secs
 }

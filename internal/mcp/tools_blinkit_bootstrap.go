@@ -8,6 +8,8 @@ import (
 	"one-agent/internal/platforms/blinkit"
 )
 
+const defaultBootstrapToolTimeout = 60 * time.Second
+
 func (s *Server) handleBootstrapBlinkitWebSession(ctx context.Context, raw []byte) (any, *toolError) {
 	var input bootstrapBlinkitWebSessionInput
 	if err := decodeParams(raw, &input); err != nil {
@@ -20,11 +22,11 @@ func (s *Server) handleBootstrapBlinkitWebSession(ctx context.Context, raw []byt
 		return nil, invalidParams("timeout_seconds must be <= 900", nil)
 	}
 
-	runCtx := ctx
-	cancel := func() {}
+	timeout := defaultBootstrapToolTimeout
 	if input.TimeoutSeconds > 0 {
-		runCtx, cancel = context.WithTimeout(ctx, time.Duration(input.TimeoutSeconds)*time.Second)
+		timeout = time.Duration(input.TimeoutSeconds) * time.Second
 	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	session, err := blinkit.BootstrapWebSession(runCtx, s.st)

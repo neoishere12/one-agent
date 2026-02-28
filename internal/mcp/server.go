@@ -50,7 +50,7 @@ func New(st *store.Store, clients map[types.Platform]platforms.Platform, opts ..
 		platforms:     cloneClients(clients),
 		ingestLimiter: newIngestRateLimiter(10, time.Minute),
 		now:           time.Now,
-		searchLimit:   20 * time.Second,
+		searchLimit:   60 * time.Second,
 		hub:           newSSEHub(),
 	}
 	for _, opt := range opts {

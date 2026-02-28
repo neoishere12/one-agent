@@ -106,6 +106,14 @@ function bootstrapTimeoutMs(body = {}) {
   return parsed;
 }
 
+function searchTimeoutMs(body = {}) {
+  const bodyValue = Number.parseInt(body.timeout_seconds, 10);
+  if (Number.isFinite(bodyValue) && bodyValue > 0) {
+    return bodyValue * 1000;
+  }
+  return timeoutMs();
+}
+
 function workerPort(args) {
   if (Number.isFinite(args.workerPort) && args.workerPort > 0) {
     return args.workerPort;
@@ -586,8 +594,9 @@ async function runWorker(args) {
           }
           const lat = toOptionalNumber(body.lat);
           const lng = toOptionalNumber(body.lng);
-          debugLog(`search start mode=worker headless=${headless} timeout_ms=${timeout} query=${query}`);
-          return runSearch(context, page, query, lat, lng, timeout);
+          const searchTimeout = searchTimeoutMs(body);
+          debugLog(`search start mode=worker headless=${headless} timeout_ms=${searchTimeout} query=${query}`);
+          return runSearch(context, page, query, lat, lng, searchTimeout);
         }
         const bootstrapTimeout = bootstrapTimeoutMs(body);
         debugLog(`bootstrap start mode=worker headless=${headless} timeout_ms=${bootstrapTimeout}`);

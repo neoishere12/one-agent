@@ -365,14 +365,14 @@ async function applyGeolocation(context, lat, lng) {
 }
 
 async function runSearch(context, page, query, lat, lng, timeout) {
-  const deadline = newDeadline(timeout);
+  const budget = splitSearchBudget(timeout);
   await applyGeolocation(context, lat, lng);
   const searchURL = `https://blinkit.com/s/?q=${encodeURIComponent(query)}`;
 
-  let response = await waitForSearchFromUrl(page, searchURL, remainingTimeout(deadline));
+  let response = await waitForSearchFromUrl(page, searchURL, budget.directMs);
   if (!response) {
     debugLog("direct URL search response not observed, trying home-page fallback");
-    response = await waitForSearchFromHome(page, query, remainingTimeout(deadline));
+    response = await waitForSearchFromHome(page, query, budget.homeMs);
   }
 
   if (response) {
@@ -387,13 +387,43 @@ async function runSearch(context, page, query, lat, lng, timeout) {
   }
 
   debugLog("network interception miss; using in-page fetch fallback");
-  const fallback = await fetchSearchViaPage(page, query, remainingTimeout(deadline));
+  const fallback = await fetchSearchViaPage(page, query, budget.fetchMs);
   return {
     ok: true,
     url: fallback.url,
     status: fallback.status,
     raw: fallback.body,
   };
+}
+
+function splitSearchBudget(totalMs) {
+  const timeout = Number.isFinite(totalMs) && totalMs > 0 ? totalMs : DEFAULT_TIMEOUT_MS;
+  const minPhaseMs = 1000;
+
+  let directMs = Math.floor(timeout * 0.5);
+  let homeMs = Math.floor(timeout * 0.3);
+  let fetchMs = timeout - directMs - homeMs;
+
+  if (directMs < minPhaseMs) {
+    directMs = minPhaseMs;
+  }
+  if (homeMs < minPhaseMs) {
+    homeMs = minPhaseMs;
+  }
+  if (fetchMs < minPhaseMs) {
+    const deficit = minPhaseMs - fetchMs;
+    const cutHome = Math.min(deficit, Math.max(0, homeMs - minPhaseMs));
+    homeMs -= cutHome;
+    const remaining = deficit - cutHome;
+    const cutDirect = Math.min(remaining, Math.max(0, directMs - minPhaseMs));
+    directMs -= cutDirect;
+    fetchMs = timeout - directMs - homeMs;
+    if (fetchMs < minPhaseMs) {
+      fetchMs = minPhaseMs;
+    }
+  }
+
+  return { directMs, homeMs, fetchMs };
 }
 
 function decodeMaybe(value) {

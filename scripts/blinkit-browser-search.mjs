@@ -222,20 +222,113 @@ async function waitForSearchFromHome(page, query, timeout) {
   return pending;
 }
 
-async function fetchSearchViaPage(page, query, timeout) {
-  const endpoint = `${SEARCH_PATH}?q=${encodeURIComponent(query)}`;
+async function fetchSearchViaPage(page, query, lat, lng, timeout) {
+  const endpoint = `${SEARCH_PATH}?q=${encodeURIComponent(query)}&search_type=type_to_search`;
   const raw = await page.evaluate(
-    async ({ endpoint, timeout }) => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
-      try {
+    async ({ endpoint, timeout, lat, lng }) => {
+      const decodeMaybe = (value) => {
+        if (typeof value !== "string") {
+          return "";
+        }
+        try {
+          return decodeURIComponent(value);
+        } catch {
+          return value;
+        }
+      };
+      const pick = (...values) => {
+        for (const value of values) {
+          if (typeof value === "string" && value.trim()) {
+            return value.trim();
+          }
+        }
+        return "";
+      };
+      const readCookieMap = () => {
+        const map = {};
+        const rawCookie = document.cookie || "";
+        for (const entry of rawCookie.split(";")) {
+          const part = entry.trim();
+          if (!part) {
+            continue;
+          }
+          const idx = part.indexOf("=");
+          if (idx <= 0) {
+            continue;
+          }
+          const key = part.slice(0, idx).trim();
+          const value = part.slice(idx + 1).trim();
+          map[key] = value;
+        }
+        return map;
+      };
+      const readLS = (...keys) => {
+        for (const key of keys) {
+          const value = window.localStorage.getItem(key);
+          if (typeof value === "string" && value.trim()) {
+            return value.trim();
+          }
+        }
+        return "";
+      };
+      const withCoords = Number.isFinite(lat) && Number.isFinite(lng);
+      const cookies = readCookieMap();
+      const accessToken = pick(
+        readLS("gr_1_accessToken", "access_token", "accessToken"),
+        decodeMaybe(cookies.gr_1_accessToken),
+      );
+      const authKey = pick(
+        readLS("auth_key", "gr_1_authKey"),
+        decodeMaybe(cookies.auth_key),
+      );
+      const deviceID = pick(
+        readLS("gr_1_deviceId", "device_id"),
+        decodeMaybe(cookies.gr_1_deviceId),
+      );
+      const sessionUUID = pick(readLS("session_uuid"), decodeMaybe(cookies.session_uuid));
+      const webAppVersion = pick(readLS("web_app_version"), "1008010016");
+      const rnBundleVersion = pick(readLS("rn_bundle_version"), "1009003012");
+
+      const buildHeaders = (method) => {
+        const headers = {
+          accept: "application/json,text/plain,*/*",
+          "content-type": "application/json",
+          app_client: "consumer_web",
+          platform: "mobile_web",
+          "web_app_version": webAppVersion,
+          "rn_bundle_version": rnBundleVersion,
+        };
+        if (method === "GET") {
+          delete headers["content-type"];
+        }
+        if (accessToken) {
+          headers.access_token = accessToken;
+        }
+        if (authKey) {
+          headers.auth_key = authKey;
+        }
+        if (deviceID) {
+          headers.device_id = deviceID;
+        }
+        if (sessionUUID) {
+          headers.session_uuid = sessionUUID;
+        }
+        if (withCoords) {
+          headers.lat = String(lat);
+          headers.lon = String(lng);
+          headers.cur_lat = String(lat);
+          headers.cur_lon = String(lng);
+        }
+        return headers;
+      };
+      const doFetch = async (method) => {
+        const headers = buildHeaders(method);
         const response = await fetch(endpoint, {
-          method: "GET",
+          method,
           credentials: "include",
           signal: controller.signal,
-          headers: {
-            accept: "application/json,text/plain,*/*",
-          },
+          headers,
+          body: method === "POST" ? "{}" : undefined,
         });
         const text = await response.text();
         return {
@@ -243,7 +336,18 @@ async function fetchSearchViaPage(page, query, timeout) {
           status: response.status,
           url: response.url,
           text,
+          method,
         };
+      };
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+      try {
+        const first = await doFetch("GET");
+        if (first.ok || first.status !== 403) {
+          return first;
+        }
+        return doFetch("POST");
       } catch (err) {
         return {
           ok: false,
@@ -256,13 +360,20 @@ async function fetchSearchViaPage(page, query, timeout) {
         clearTimeout(timer);
       }
     },
-    { endpoint, timeout }
+    { endpoint, timeout, lat, lng }
   );
 
   if (raw.error) {
     throw new Error(`in-page fetch failed: ${raw.error}`);
   }
   if (!raw.ok) {
+    let snippet = "";
+    if (typeof raw.text === "string" && raw.text.trim()) {
+      snippet = raw.text.replace(/\s+/g, " ").trim().slice(0, 180);
+    }
+    if (snippet) {
+      throw new Error(`in-page fetch status ${raw.status} (${raw.url}): ${snippet}`);
+    }
     throw new Error(`in-page fetch status ${raw.status} (${raw.url})`);
   }
   try {
@@ -387,7 +498,7 @@ async function runSearch(context, page, query, lat, lng, timeout) {
   }
 
   debugLog("network interception miss; using in-page fetch fallback");
-  const fallback = await fetchSearchViaPage(page, query, budget.fetchMs);
+  const fallback = await fetchSearchViaPage(page, query, lat, lng, budget.fetchMs);
   return {
     ok: true,
     url: fallback.url,

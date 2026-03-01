@@ -97,6 +97,8 @@ Starts an **async** login flow for Blinkit browser mode and returns a `login_id`
 
 This is intended for external login handoff flows where a user completes login in a VPS-controlled browser profile (for example via your own remote-browser UI). The tool itself does not open a browser window in ChatGPT/Claude.
 
+`login_url` is returned only when `BLINKIT_EXTERNAL_LOGIN_URL` is configured in server env. If unset, follow `message` guidance and complete login in the worker's VPS-controlled profile directly.
+
 **Input:**
 ```json
 {
@@ -114,8 +116,8 @@ This is intended for external login handoff flows where a user completes login i
   "status": "pending",
   "ready": false,
   "needs_human_verification": false,
-  "message": "Complete Blinkit login in the VPS-controlled browser profile, then poll login_status with login_id",
-  "login_url": "https://blinkit.com/",
+  "message": "Complete Blinkit login in the VPS-controlled browser profile via login_url, then poll login_status with login_id",
+  "login_url": "https://<your-vps-login-ui>/",
   "status_tool": "login_status",
   "created_at": "2026-03-01T10:40:00Z",
   "updated_at": "2026-03-01T10:40:00Z",

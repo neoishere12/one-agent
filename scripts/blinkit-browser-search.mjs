@@ -195,7 +195,12 @@ async function launchBrowserSession(chromium, fingerprint, timeout) {
     if (p) launchOptions.proxy.password = p;
   }
 
-  const context = await chromium.launchPersistentContext(profileDir, launchOptions);
+  let context;
+  try {
+    context = await chromium.launchPersistentContext(profileDir, launchOptions);
+  } catch (err) {
+    throw profileLockError(err, profileDir);
+  }
   context.setDefaultTimeout(timeout);
   context.setDefaultNavigationTimeout(timeout);
 
@@ -365,6 +370,24 @@ function toOptionalNumber(value) {
 
 function print(payload) { process.stdout.write(`${JSON.stringify(payload)}\n`); }
 function cleanError(err) { if (!err) return "unknown error"; return (typeof err === "string" ? err : err.message || String(err)).replace(/\s+/g, " ").trim(); }
+function profileLockError(err, profileDir) {
+  const msg = cleanError(err);
+  const lower = msg.toLowerCase();
+  if (!lower.includes("processsingleton") && !lower.includes("singletonlock")) return err;
+  const lockFiles = [
+    path.join(profileDir, "SingletonLock"),
+    path.join(profileDir, "SingletonSocket"),
+    path.join(profileDir, "SingletonCookie"),
+  ];
+  const snippet = msg.length > 320 ? `${msg.slice(0, 320)}...` : msg;
+  return new Error(
+    `browser profile lock detected for ${profileDir}. ` +
+    "Another Chromium/worker instance is using this profile. " +
+    "Stop blinkit-browser-worker (systemctl stop blinkit-browser-worker) and close any other Chromium using this profile, then retry. " +
+    `If no Chromium process is running, remove stale lock files and retry: rm -f ${lockFiles.join(" ")}. ` +
+    `Original error: ${snippet}`
+  );
+}
 function textContainsChallenge(text) { if (typeof text !== "string" || !text.trim()) return false; const lower = text.toLowerCase(); return CHALLENGE_MARKERS.some((m) => lower.includes(m)); }
 function writeJSON(res, status, payload) { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(payload)); }
 async function readJSONBody(req) { const chunks = []; for await (const chunk of req) chunks.push(chunk); const text = Buffer.concat(chunks).toString("utf8"); if (!text.trim()) return {}; return JSON.parse(text); }

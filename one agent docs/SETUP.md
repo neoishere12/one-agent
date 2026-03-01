@@ -246,9 +246,11 @@ If you create temporary scripts with a heredoc (`cat << 'EOF'`), the closing `EO
 
 ```bash
 cd /opt/one-agent   # or your local repo path
+systemctl stop blinkit-browser-worker || true   # avoid profile lock during manual bootstrap
 export BLINKIT_BROWSER_PROFILE_DIR=$PWD/.data/blinkit-browser-profile
 export BLINKIT_BROWSER_HEADLESS=false
 node scripts/blinkit-browser-search.mjs --bootstrap
+systemctl start blinkit-browser-worker || true
 ```
 
 A Chromium window opens. Complete Blinkit login/OTP once.

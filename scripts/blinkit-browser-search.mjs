@@ -143,7 +143,7 @@ function loadPuppeteerExtra() {
 
 function generateFingerprint() {
   try {
-    const { FingerprintGenerator } = require("@apify/fingerprint-generator");
+    const { FingerprintGenerator } = require("fingerprint-generator");
     const gen = new FingerprintGenerator({
       browsers: ["chrome"],
       devices: ["mobile"],

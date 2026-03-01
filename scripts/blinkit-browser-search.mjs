@@ -199,7 +199,7 @@ async function launchBrowserSession(chromium, fingerprint, timeout) {
   try {
     context = await chromium.launchPersistentContext(profileDir, launchOptions);
   } catch (err) {
-    throw profileLockError(err, profileDir);
+    throw displayError(profileLockError(err, profileDir));
   }
   context.setDefaultTimeout(timeout);
   context.setDefaultNavigationTimeout(timeout);
@@ -370,6 +370,20 @@ function toOptionalNumber(value) {
 
 function print(payload) { process.stdout.write(`${JSON.stringify(payload)}\n`); }
 function cleanError(err) { if (!err) return "unknown error"; return (typeof err === "string" ? err : err.message || String(err)).replace(/\s+/g, " ").trim(); }
+function displayError(err) {
+  const msg = cleanError(err);
+  const lower = msg.toLowerCase();
+  if (!lower.includes("missing x server") && !lower.includes("without having a xserver running") && !lower.includes("$display")) {
+    return err;
+  }
+  const snippet = msg.length > 320 ? `${msg.slice(0, 320)}...` : msg;
+  return new Error(
+    "headed browser requires a display server, but this VPS has no X server. " +
+    "Set BLINKIT_BROWSER_HEADLESS=true for server usage. " +
+    "If you need headed mode, run with xvfb (xvfb-run -a node scripts/blinkit-browser-search.mjs ...). " +
+    `Original error: ${snippet}`
+  );
+}
 function profileLockError(err, profileDir) {
   const msg = cleanError(err);
   const lower = msg.toLowerCase();

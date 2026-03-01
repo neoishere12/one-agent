@@ -248,12 +248,15 @@ If you create temporary scripts with a heredoc (`cat << 'EOF'`), the closing `EO
 cd /opt/one-agent   # or your local repo path
 systemctl stop blinkit-browser-worker || true   # avoid profile lock during manual bootstrap
 export BLINKIT_BROWSER_PROFILE_DIR=$PWD/.data/blinkit-browser-profile
-export BLINKIT_BROWSER_HEADLESS=false
+export BLINKIT_BROWSER_HEADLESS=false            # requires X/desktop session
 node scripts/blinkit-browser-search.mjs --bootstrap
 systemctl start blinkit-browser-worker || true
 ```
 
 A Chromium window opens. Complete Blinkit login/OTP once.
+
+If you are on an SSH-only VPS (no X server), do not set `BLINKIT_BROWSER_HEADLESS=false`.
+Use `BLINKIT_BROWSER_HEADLESS=true` for worker/runtime and inject cookies via `BLINKIT_BROWSER_COOKIES_FILE` (or ingest a fresh web session) instead of interactive login.
 
 Optional (persist the Blinkit session into MCP store without HAR import):
 ```bash

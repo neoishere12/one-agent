@@ -219,7 +219,11 @@ async function launchBrowserSession(puppeteer, fingerprint, timeout) {
     "--disable-infobars",
     "--disable-dev-shm-usage",
     "--disable-accelerated-2d-canvas",
+    "--disable-gpu",
+    "--disable-software-rasterizer",
+    "--no-zygote",
     "--no-first-run",
+    "--disable-extensions",
     `--window-size=${MOBILE_VIEWPORT.width},${MOBILE_VIEWPORT.height}`,
   ];
 

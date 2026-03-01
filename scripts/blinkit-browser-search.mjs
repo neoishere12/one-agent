@@ -243,11 +243,11 @@ async function launchBrowserSession(puppeteer, fingerprint, timeout) {
   if (executablePath) launchOptions.executablePath = executablePath;
 
   const browser = await puppeteer.launch(launchOptions);
-  const existingPages = await browser.pages();
-  const page = existingPages[0] ?? (await browser.newPage());
 
-  // Reset to blank before any injection to prevent session-restore crashes.
-  await page.goto("about:blank", { waitUntil: "load", timeout: 10000 }).catch(() => {});
+  // Close all pages restored from previous session — they may have dead frames.
+  const existingPages = await browser.pages();
+  const page = await browser.newPage();
+  for (const p of existingPages) await p.close().catch(() => {});
 
   // Proxy auth (only when proxy is configured).
   const proxyUser = String(process.env.BLINKIT_BROWSER_PROXY_USERNAME || "").trim();
@@ -672,6 +672,8 @@ async function runSearch(browser, page, query, lat, lng, timeout) {
 // ─── session snapshot ─────────────────────────────────────────────────────────
 
 async function sessionStatusSnapshot(page) {
+  const fallback = { title: "", body: "", accessTokenPresent: false, authKeyPresent: false };
+  if (!page || page.isClosed()) return fallback;
   return page.evaluate(() => {
     const safeGet = (...keys) => { for (const k of keys) { try { const v = window.localStorage.getItem(k); if (typeof v === "string" && v.trim()) return v.trim(); } catch {} } return ""; };
     const title = document.title || "";
@@ -679,7 +681,7 @@ async function sessionStatusSnapshot(page) {
     const access = safeGet("gr_1_accessToken", "access_token", "accessToken");
     const authKey = safeGet("auth_key", "gr_1_authKey");
     return { title, body: body.slice(0, 4000), accessTokenPresent: Boolean(access), authKeyPresent: Boolean(authKey) };
-  });
+  }).catch(() => fallback);
 }
 
 function decodeMaybe(v) { if (typeof v !== "string") return ""; try { return decodeURIComponent(v); } catch { return v; } }

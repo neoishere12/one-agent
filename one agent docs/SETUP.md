@@ -227,9 +227,20 @@ npx playwright install chromium   # reuses the Playwright Chromium binary
 ```
 
 `npm install` reads `package.json` and installs:
-- `puppeteer-extra` + `puppeteer-extra-plugin-stealth` — patches navigator.webdriver, WebGL, canvas, ~20 detection vectors
-- `puppeteer-core` — browser automation (uses the Playwright Chromium binary)
-- `@apify/fingerprint-generator` + `fingerprint-injector` — injects a realistic iOS Chrome screen/font/WebGL fingerprint
+- `playwright-extra` + `puppeteer-extra-plugin-stealth` — patches navigator.webdriver, WebGL, canvas, ~20 detection vectors
+- `playwright-core` — browser automation (uses the Playwright Chromium binary installed above)
+- `fingerprint-generator` + `fingerprint-injector` — injects a realistic iOS Chrome screen/font/WebGL fingerprint
+
+Quick VPS smoke test (before bootstrap/login):
+
+```bash
+cd /opt/one-agent
+BLINKIT_BROWSER_HEADLESS=true node scripts/chrome-smoke.mjs
+```
+
+Expected output contains `"ok":true` and `"result":"hello"`.
+
+If you create temporary scripts with a heredoc (`cat << 'EOF'`), the closing `EOF` must be at column 1 (no leading spaces/tabs), or the shell waits forever for more input.
 
 ### 2) Bootstrap a logged-in Blinkit browser profile once
 

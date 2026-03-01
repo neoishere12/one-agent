@@ -210,6 +210,10 @@ func (s *Server) callNativeTool(ctx context.Context, method string, params json.
 		return s.handleCaptureSession(ctx, params)
 	case "bootstrap_blinkit_web_session":
 		return s.handleBootstrapBlinkitWebSession(ctx, params)
+	case "blinkit_worker_status":
+		return s.handleBlinkitWorkerStatus(ctx, params)
+	case "reverify_blinkit_session":
+		return s.handleReverifyBlinkitSession(ctx, params)
 	case "list_sessions":
 		return s.handleListSessions(ctx)
 	case "refresh_tokens":

@@ -3,8 +3,8 @@ package blinkit_test
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,11 +54,20 @@ func seedSession(t *testing.T, s *store.Store) {
 }
 
 // newMockServer returns an httptest.Server routing paths to JSON handlers.
-func newMockServer(t *testing.T, mux *http.ServeMux) *httptest.Server {
+func newMockServer(t *testing.T, mux *http.ServeMux) string {
 	t.Helper()
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp4: %v", err)
+	}
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	})
+	return "http://" + ln.Addr().String()
 }
 
 func mustJSON(t *testing.T, v any) string {
@@ -110,7 +119,7 @@ func TestSearch(t *testing.T) {
 	srv := newMockServer(t, mux)
 	s := newTestStore(t)
 	seedSession(t, s)
-	client := blinkit.New(s, blinkit.WithBaseURL(srv.URL))
+	client := blinkit.New(s, blinkit.WithBaseURL(srv))
 
 	products, err := client.Search(context.Background(), "lassi", 18.52, 73.85)
 	if err != nil {
@@ -137,7 +146,7 @@ func TestAddToCart(t *testing.T) {
 	srv := newMockServer(t, mux)
 	s := newTestStore(t)
 	seedSession(t, s)
-	client := blinkit.New(s, blinkit.WithBaseURL(srv.URL))
+	client := blinkit.New(s, blinkit.WithBaseURL(srv))
 
 	cartID, err := client.AddToCart(context.Background(), "prod-001", 1)
 	if err != nil {
@@ -158,7 +167,7 @@ func TestCheckout(t *testing.T) {
 	srv := newMockServer(t, mux)
 	s := newTestStore(t)
 	seedSession(t, s)
-	client := blinkit.New(s, blinkit.WithBaseURL(srv.URL))
+	client := blinkit.New(s, blinkit.WithBaseURL(srv))
 
 	result, err := client.Checkout(context.Background(), "cart-abc", "addr-001")
 	if err != nil {
@@ -182,7 +191,7 @@ func TestPay(t *testing.T) {
 	srv := newMockServer(t, mux)
 	s := newTestStore(t)
 	seedSession(t, s)
-	client := blinkit.New(s, blinkit.WithBaseURL(srv.URL))
+	client := blinkit.New(s, blinkit.WithBaseURL(srv))
 
 	order, err := client.Pay(context.Background(), "co-001", "pay-token")
 	if err != nil {
@@ -197,15 +206,19 @@ func TestPay(t *testing.T) {
 }
 
 func TestPayNetworkError(t *testing.T) {
-	// Close the server immediately — simulates a network error during Pay.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	srv.Close() // closed before request
+	// Reserve then close a TCP port — simulates a network error during Pay.
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp4: %v", err)
+	}
+	baseURL := "http://" + ln.Addr().String()
+	_ = ln.Close()
 
 	s := newTestStore(t)
 	seedSession(t, s)
-	client := blinkit.New(s, blinkit.WithBaseURL(srv.URL))
+	client := blinkit.New(s, blinkit.WithBaseURL(baseURL))
 
-	_, err := client.Pay(context.Background(), "co-001", "pay-token")
+	_, err = client.Pay(context.Background(), "co-001", "pay-token")
 	if err == nil {
 		t.Error("expected error on network failure, got nil")
 	}
@@ -230,7 +243,7 @@ func TestRefreshToken(t *testing.T) {
 	srv := newMockServer(t, mux)
 	s := newTestStore(t)
 	seedSession(t, s)
-	client := blinkit.New(s, blinkit.WithBaseURL(srv.URL))
+	client := blinkit.New(s, blinkit.WithBaseURL(srv))
 
 	newAccess, newRefresh, expiresAt, err := client.RefreshToken(context.Background(), "test-refresh-token")
 	if err != nil {
@@ -257,7 +270,7 @@ func TestOrderStatus(t *testing.T) {
 	srv := newMockServer(t, mux)
 	s := newTestStore(t)
 	seedSession(t, s)
-	client := blinkit.New(s, blinkit.WithBaseURL(srv.URL))
+	client := blinkit.New(s, blinkit.WithBaseURL(srv))
 
 	status, eta, err := client.OrderStatus(context.Background(), "BLK-001")
 	if err != nil {

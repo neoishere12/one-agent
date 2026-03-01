@@ -46,7 +46,7 @@ func TestSearchWebSessionDoesNotInjectReqKey(t *testing.T) {
 	srv := newMockServer(t, mux)
 	s := newTestStore(t)
 	seedWebSession(t, s)
-	client := blinkit.New(s, blinkit.WithBaseURL(srv.URL))
+	client := blinkit.New(s, blinkit.WithBaseURL(srv))
 	if _, err := client.Search(context.Background(), "amul lassi", 18.52, 73.85); err != nil {
 		t.Fatalf("Search(web): %v", err)
 	}

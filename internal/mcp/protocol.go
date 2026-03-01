@@ -133,6 +133,8 @@ func mcpToolsCatalog() []mcpTool {
 	return []mcpTool{
 		captureSessionTool(),
 		bootstrapBlinkitWebSessionTool(),
+		blinkitWorkerStatusTool(),
+		reverifyBlinkitSessionTool(),
 		listSessionsTool(),
 		refreshTokensTool(),
 		searchProductTool(),

@@ -7,9 +7,19 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"one-agent/internal/platforms"
 	"one-agent/internal/types"
+)
+
+const browserWorkerStatusProbeTimeout = 3 * time.Second
+
+var (
+	browserWorkerStatusQueryFn = queryBrowserWorkerStatus
+	browserSearchBridgeFn      = func(c *Client, ctx context.Context, query string, lat, lng float64) ([]types.Product, error) {
+		return c.searchViaBrowserBridge(ctx, query, lat, lng)
+	}
 )
 
 // Search queries Blinkit for products matching query at the given coordinates.
@@ -30,7 +40,18 @@ func (c *Client) Search(ctx context.Context, query string, lat, lng float64) ([]
 }
 
 func (c *Client) searchViaBrowser(ctx context.Context, query string, lat, lng float64) ([]types.Product, error) {
-	products, err := c.searchViaBrowserBridge(ctx, query, lat, lng)
+	if workerURL := browserWorkerURL(); workerURL != "" {
+		probeCtx, cancel := context.WithTimeout(ctx, browserWorkerStatusProbeTimeout)
+		status, err := browserWorkerStatusQueryFn(probeCtx, workerURL)
+		cancel()
+		if err == nil && status.ChallengeDetected {
+			return nil, fmt.Errorf(
+				"needs_human_verification: blinkit challenge detected in browser session; run reverify_blinkit_session",
+			)
+		}
+	}
+
+	products, err := browserSearchBridgeFn(c, ctx, query, lat, lng)
 	if err != nil {
 		return nil, fmt.Errorf("blinkit browser search: %w", err)
 	}

@@ -10,6 +10,37 @@ type bootstrapBlinkitWebSessionInput struct {
 	TimeoutSeconds int `json:"timeout_seconds"`
 }
 
+type blinkitWorkerStatusInput struct {
+	TimeoutSeconds int `json:"timeout_seconds"`
+}
+
+type blinkitWorkerStatusOutput struct {
+	WorkerConfigured       bool   `json:"worker_configured"`
+	WorkerURL              string `json:"worker_url,omitempty"`
+	WorkerReachable        bool   `json:"worker_reachable"`
+	PageURL                string `json:"page_url,omitempty"`
+	Title                  string `json:"title,omitempty"`
+	AccessTokenPresent     bool   `json:"access_token_present"`
+	AuthKeyPresent         bool   `json:"auth_key_present"`
+	ChallengeDetected      bool   `json:"challenge_detected"`
+	NeedsHumanVerification bool   `json:"needs_human_verification"`
+	Message                string `json:"message,omitempty"`
+}
+
+type reverifyBlinkitSessionInput struct {
+	TimeoutSeconds int `json:"timeout_seconds"`
+}
+
+type reverifyBlinkitSessionOutput struct {
+	App                    string                    `json:"app"`
+	Ready                  bool                      `json:"ready"`
+	NeedsHumanVerification bool                      `json:"needs_human_verification"`
+	Message                string                    `json:"message"`
+	CapturedAt             time.Time                 `json:"captured_at,omitempty"`
+	TokenExpiresAt         time.Time                 `json:"token_expires_at,omitempty"`
+	Worker                 blinkitWorkerStatusOutput `json:"worker"`
+}
+
 type bootstrapBlinkitWebSessionOutput struct {
 	App               string    `json:"app"`
 	CapturedAt        time.Time `json:"captured_at"`

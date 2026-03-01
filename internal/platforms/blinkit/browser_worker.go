@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+var ErrBrowserWorkerNotConfigured = errors.New("blinkit browser worker url not configured")
 
 type browserWorkerRequest struct {
 	Query          string   `json:"query"`
@@ -20,6 +23,31 @@ type browserWorkerRequest struct {
 
 type browserBootstrapWorkerRequest struct {
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+}
+
+// BrowserWorkerStatus is the worker-reported browser session state used for
+// fast challenge/login diagnostics.
+type BrowserWorkerStatus struct {
+	OK                 bool   `json:"ok"`
+	PageURL            string `json:"page_url"`
+	Title              string `json:"title"`
+	AccessTokenPresent bool   `json:"access_token_present"`
+	AuthKeyPresent     bool   `json:"auth_key_present"`
+	ChallengeDetected  bool   `json:"challenge_detected"`
+}
+
+// BrowserWorkerConfigured reports whether BLINKIT_BROWSER_WORKER_URL is set.
+func BrowserWorkerConfigured() bool {
+	return browserWorkerURL() != ""
+}
+
+// BrowserWorkerStatusSnapshot returns current worker-side session/challenge state.
+func BrowserWorkerStatusSnapshot(ctx context.Context) (*BrowserWorkerStatus, error) {
+	workerURL := browserWorkerURL()
+	if workerURL == "" {
+		return nil, ErrBrowserWorkerNotConfigured
+	}
+	return queryBrowserWorkerStatus(ctx, workerURL)
 }
 
 func queryBrowserWorker(
@@ -55,6 +83,21 @@ func bootstrapBrowserWorker(
 	return decodeBrowserBootstrapOutput(out)
 }
 
+func queryBrowserWorkerStatus(ctx context.Context, baseURL string) (*BrowserWorkerStatus, error) {
+	out, err := getBrowserWorker(ctx, baseURL, "/status")
+	if err != nil {
+		return nil, err
+	}
+	var status BrowserWorkerStatus
+	if err := json.Unmarshal(out, &status); err != nil {
+		return nil, fmt.Errorf("invalid worker status JSON: %w: %s", err, clipBridgeOutput(out))
+	}
+	if !status.OK {
+		return nil, fmt.Errorf("worker status payload not ok: %s", clipBridgeOutput(out))
+	}
+	return &status, nil
+}
+
 func postBrowserWorker(
 	ctx context.Context,
 	baseURL string,
@@ -71,6 +114,31 @@ func postBrowserWorker(
 		return nil, fmt.Errorf("create worker request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("worker http call: %w", err)
+	}
+	defer resp.Body.Close()
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read worker response: %w", err)
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, fmt.Errorf("worker status %d: %s", resp.StatusCode, clipBridgeOutput(out))
+	}
+	return out, nil
+}
+
+func getBrowserWorker(
+	ctx context.Context,
+	baseURL string,
+	path string,
+) ([]byte, error) {
+	url := strings.TrimRight(baseURL, "/") + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create worker request: %w", err)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("worker http call: %w", err)

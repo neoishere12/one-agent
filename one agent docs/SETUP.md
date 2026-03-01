@@ -296,6 +296,25 @@ curl -sS http://127.0.0.1:42199/status
 
 `/status` helps confirm whether the browser profile currently has access/auth tokens and whether a challenge page is detected before running `search_product`.
 
+Recommended MCP recovery flow when Blinkit browser search fails:
+
+```bash
+# 1) Diagnose worker/profile state
+curl -sS http://127.0.0.1:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"blinkit_worker_status","arguments":{"timeout_seconds":5}}}'
+
+# 2) Reverify + persist Blinkit browser session if needed
+curl -sS http://127.0.0.1:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"reverify_blinkit_session","arguments":{"timeout_seconds":300}}}'
+
+# 3) Retry search
+curl -sS http://127.0.0.1:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"search_product","arguments":{"apps":["blinkit"],"query":"amul lassi","latitude":18.6456,"longitude":73.8852}}}'
+```
+
 For systemd, add the same vars to `/etc/shopping-agent.env`, then:
 
 ```bash

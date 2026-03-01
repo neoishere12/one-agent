@@ -11,6 +11,8 @@
 |---|---|---|
 | `capture_session` | Setup | None (polls store; external importer writes the session) |
 | `bootstrap_blinkit_web_session` | Setup | Writes Blinkit web session to store |
+| `blinkit_worker_status` | Setup/Diagnostics | None |
+| `reverify_blinkit_session` | Setup/Recovery | Writes Blinkit web session to store |
 | `list_sessions` | Introspection | None |
 | `refresh_tokens` | Auth | Writes to store |
 | `search_product` | Commerce | None |
@@ -120,6 +122,77 @@ Use this when:
 - Worker/helper timeout
 
 **Side effects:** writes/overwrites Blinkit session in store.
+
+---
+
+## `blinkit_worker_status`
+
+Returns browser-worker status for Blinkit (configured/reachable, token presence, challenge detection).
+
+Use this before Blinkit browser-backed search when debugging `403`, challenge pages, or stale login state.
+
+**Input:**
+```json
+{
+  "timeout_seconds": 5
+}
+```
+`timeout_seconds` is optional (`0..30`).
+
+**Output (example):**
+```json
+{
+  "worker_configured": true,
+  "worker_url": "http://127.0.0.1:42199",
+  "worker_reachable": true,
+  "page_url": "https://blinkit.com/s/?q=amul+lassi",
+  "title": "Blinkit",
+  "access_token_present": true,
+  "auth_key_present": true,
+  "challenge_detected": false,
+  "needs_human_verification": false,
+  "message": "Blinkit worker session looks ready"
+}
+```
+
+**Side effects:** none.
+
+---
+
+## `reverify_blinkit_session`
+
+Re-checks Blinkit browser profile readiness and tries to persist a fresh Blinkit web session via worker bootstrap.
+
+Use this after `blinkit_worker_status` reports challenge/login issues, or after `search_product` returns `needs_human_verification`.
+
+**Input:**
+```json
+{
+  "timeout_seconds": 300
+}
+```
+`timeout_seconds` is optional (`0..900`).
+
+**Output (example):**
+```json
+{
+  "app": "blinkit",
+  "ready": true,
+  "needs_human_verification": false,
+  "captured_at": "2026-03-01T09:10:00Z",
+  "token_expires_at": "2026-03-08T09:10:00Z",
+  "worker": {
+    "worker_configured": true,
+    "worker_reachable": true,
+    "challenge_detected": false
+  },
+  "message": "Blinkit browser session is verified and persisted"
+}
+```
+
+If verification/login is still needed, returns `ready=false` with actionable guidance in `message`.
+
+**Side effects:** writes/overwrites Blinkit session in store when successful.
 
 ---
 
@@ -243,6 +316,7 @@ To avoid browser relaunch on every search, run helper worker mode once:
 - Partial results are returned even if one platform fails — failed apps listed in `errors` field
 - Browser mode can return:
   - `human_verification_required: ...` when Blinkit anti-bot challenge is detected
+  - `needs_human_verification: run reverify_blinkit_session ...` when worker preflight detects challenge/login required
   - successful results can come from DOM extraction fallback when direct network interception is blocked
 
 ---

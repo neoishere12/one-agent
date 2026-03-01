@@ -87,7 +87,7 @@ func (s *Server) searchOne(
 	defer cancel()
 	products, err := client.Search(searchCtx, query, lat, lng)
 	if err != nil {
-		recordFailure(mu, failures, app, err.Error())
+		recordFailure(mu, failures, app, normalizeSearchError(app, err.Error()))
 		return
 	}
 
@@ -176,4 +176,15 @@ func recordFailure(mu *sync.Mutex, failures map[string]string, app types.Platfor
 	mu.Lock()
 	failures[string(app)] = message
 	mu.Unlock()
+}
+
+func normalizeSearchError(app types.Platform, message string) string {
+	if app != types.PlatformBlinkit {
+		return message
+	}
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if strings.Contains(lower, "needs_human_verification") || strings.Contains(lower, "human_verification_required") {
+		return "needs_human_verification: run reverify_blinkit_session and complete verification/login in the Blinkit worker profile"
+	}
+	return message
 }

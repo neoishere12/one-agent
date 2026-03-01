@@ -20,7 +20,18 @@
       "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test -v ./tests/... 2>&1 | grep -E \"^\\(=== RUN|--- PASS|--- FAIL\\)\")",
       "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test ./tests/... -run TestFileSizeLimits -v 2>&1 | tail -5)",
       "Bash(cd /Users/nitinsinghmanhas/Desktop/one-agent && go test ./internal/mcp/... -v 2>&1 | grep -E \"^\\(=== RUN|--- PASS|--- FAIL|FAIL|ok\\)\")",
-      "Bash(go test ./internal/... ./tests/... 2>&1 | grep -E \"^\\(ok|FAIL\\)\")"
+      "Bash(go test ./internal/... ./tests/... 2>&1 | grep -E \"^\\(ok|FAIL\\)\")",
+      "Bash(go test ./internal/platforms/blinkit/... -v -timeout 30s 2>&1 | tail -30)",
+      "Bash(go test ./internal/proxyman/... -v -timeout 30s 2>&1 | tail -20)",
+      "Bash(go test ./internal/platforms/blinkit/... -v -timeout 30s -run \"TestBlinkit\" 2>&1 | tail -20)",
+      "Bash(go test ./internal/platforms/blinkit/... -v -timeout 30s -run \"TestBootstrap\" 2>&1 | tail -20)",
+      "Bash(go test ./internal/platforms/blinkit/... -v -timeout 30s -run \"TestBrowser\" 2>&1)",
+      "Bash(go test ./internal/platforms/blinkit/... -v -timeout 30s -run \"TestBlinkitWeb\" 2>&1)",
+      "Bash(grep -r \"func Test\" internal/platforms/blinkit/*.go)",
+      "Bash(go test ./internal/platforms/blinkit/... -v -timeout 30s -run \"TestSearch$\" 2>&1)",
+      "Bash(go test ./internal/platforms/blinkit/... -v -timeout 30s -run \"TestSearchBrowserModeWithoutStoredSession\" 2>&1)",
+      "Bash(go test ./internal/platforms/blinkit/... -v -timeout 30s -run \"TestAddToCart|TestCheckout|TestPay$|TestPayNetworkError|TestRefreshToken|TestOrderStatus\" 2>&1)",
+      "Bash(go test ./internal/refresh/... ./internal/platforms/zepto/... ./internal/platforms/instamart/... ./tests/... -timeout 30s 2>&1)"
     ]
   }
 }

@@ -46,6 +46,12 @@ func TestToolsListIncludesExpectedTools(t *testing.T) {
 	if !hasTool(out.Tools, "bootstrap_blinkit_web_session") {
 		t.Fatal("missing bootstrap_blinkit_web_session")
 	}
+	if !hasTool(out.Tools, "blinkit_worker_status") {
+		t.Fatal("missing blinkit_worker_status")
+	}
+	if !hasTool(out.Tools, "reverify_blinkit_session") {
+		t.Fatal("missing reverify_blinkit_session")
+	}
 }
 
 func TestToolsCallDelegatesToNativeTool(t *testing.T) {

@@ -83,6 +83,20 @@ curl -sS https://<public-host>/mcp \
   -d '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"bootstrap_blinkit_web_session","arguments":{"timeout_seconds":300}}}'
 ```
 
+Worker diagnostics + recovery (recommended before retrying Blinkit search):
+
+```bash
+# status probe
+curl -sS https://<public-host>/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"blinkit_worker_status","arguments":{"timeout_seconds":5}}}'
+
+# reverify and persist browser session
+curl -sS https://<public-host>/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"reverify_blinkit_session","arguments":{"timeout_seconds":300}}}'
+```
+
 ---
 
 ## 5) Logs and restart commands

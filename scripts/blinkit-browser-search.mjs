@@ -802,9 +802,16 @@ async function extractProductsFromDOM(page, query) {
 
 async function sessionStatusSnapshot(page) {
   return page.evaluate(() => {
+    const tryLocalStorage = (fn, fallback) => {
+      try {
+        return fn();
+      } catch {
+        return fallback;
+      }
+    };
     const safeGet = (...keys) => {
       for (const key of keys) {
-        const value = window.localStorage.getItem(key);
+        const value = tryLocalStorage(() => window.localStorage.getItem(key), "");
         if (typeof value === "string" && value.trim()) {
           return value.trim();
         }
@@ -882,13 +889,21 @@ function findAccessTokenFallback(store, cookies) {
 
 async function readSessionSnapshot(context, page) {
   const storage = await page.evaluate(() => {
+    const tryLocalStorage = (fn, fallback) => {
+      try {
+        return fn();
+      } catch {
+        return fallback;
+      }
+    };
     const out = {};
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i);
+    const length = tryLocalStorage(() => window.localStorage.length, 0);
+    for (let i = 0; i < length; i += 1) {
+      const key = tryLocalStorage(() => window.localStorage.key(i), "");
       if (!key) {
         continue;
       }
-      out[key] = window.localStorage.getItem(key) || "";
+      out[key] = tryLocalStorage(() => window.localStorage.getItem(key), "") || "";
     }
     return {
       localStorage: out,

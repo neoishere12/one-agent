@@ -125,6 +125,8 @@ This is intended for external login handoff flows where a user completes login i
 
 **Side effects:** starts in-memory login state and background bootstrap attempt; writes Blinkit session to store on success.
 
+If a Blinkit login flow is already `pending`, a repeated `start_login` call returns that same pending `login_id` (does not start a second concurrent flow).
+
 ---
 
 ## `login_status`

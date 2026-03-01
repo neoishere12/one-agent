@@ -92,6 +92,56 @@ func TestStartLoginBlinkitFailureMarksHumanVerification(t *testing.T) {
 	}
 }
 
+func TestStartLoginReturnsExistingPendingFlow(t *testing.T) {
+	t.Setenv("BLINKIT_BROWSER_WORKER_URL", "http://worker.local")
+	statusCalls := 0
+	stubBlinkitWorkerStatus(t, func(ctx context.Context) (*blinkit.BrowserWorkerStatus, error) {
+		statusCalls++
+		return &blinkit.BrowserWorkerStatus{
+			OK:                 true,
+			PageURL:            "https://blinkit.com/",
+			Title:              "Blinkit",
+			AccessTokenPresent: false,
+			AuthKeyPresent:     false,
+			ChallengeDetected:  false,
+		}, nil
+	})
+
+	release := make(chan struct{})
+	stubBlinkitBootstrap(t, func(ctx context.Context, st *store.Store) (*types.AppSession, error) {
+		<-release
+		sess := fixtureBlinkitSession(time.Now())
+		if err := st.Set(context.Background(), types.PlatformBlinkit, sess); err != nil {
+			return nil, err
+		}
+		return sess, nil
+	})
+
+	st := newTestStore(t)
+	server := newServerForTests(st, map[types.Platform]platforms.Platform{})
+	firstResult, err := server.call(context.Background(), "start_login", mustRaw(t, map[string]any{
+		"app": "blinkit",
+	}))
+	if err != nil {
+		t.Fatalf("first start_login failed: %v", err)
+	}
+	first := firstResult.(loginStatusOutput)
+	secondResult, err := server.call(context.Background(), "start_login", mustRaw(t, map[string]any{
+		"app": "blinkit",
+	}))
+	if err != nil {
+		t.Fatalf("second start_login failed: %v", err)
+	}
+	second := secondResult.(loginStatusOutput)
+	if first.LoginID != second.LoginID {
+		t.Fatalf("expected same login_id for pending flow, first=%q second=%q", first.LoginID, second.LoginID)
+	}
+	if statusCalls != 1 {
+		t.Fatalf("expected worker status check once, got %d", statusCalls)
+	}
+	close(release)
+}
+
 func TestLoginStatusUnknownID(t *testing.T) {
 	st := newTestStore(t)
 	server := newServerForTests(st, map[types.Platform]platforms.Platform{})

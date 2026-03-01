@@ -28,6 +28,10 @@ func (s *Server) handleStartLogin(ctx context.Context, raw []byte) (any, *toolEr
 	if app != types.PlatformBlinkit {
 		return nil, invalidParams("start_login currently supports blinkit only", nil)
 	}
+	if pending, ok := s.loginFlows.pendingForApp(app); ok {
+		pending.Message = "Blinkit login already in progress; keep polling login_status with existing login_id"
+		return pending, nil
+	}
 	timeout, timeoutErr := parseStartLoginTimeout(input.TimeoutSeconds)
 	if timeoutErr != nil {
 		return nil, timeoutErr

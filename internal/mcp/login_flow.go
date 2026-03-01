@@ -63,6 +63,29 @@ func (m *loginFlowManager) get(loginID string) (loginStatusOutput, bool) {
 	return *record, true
 }
 
+func (m *loginFlowManager) pendingForApp(app types.Platform) (loginStatusOutput, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now().UTC()
+	var latest *loginStatusOutput
+	for _, record := range m.records {
+		if record == nil {
+			continue
+		}
+		expirePendingIfNeeded(record, now)
+		if record.App != string(app) || record.Status != loginStatusPending {
+			continue
+		}
+		if latest == nil || record.CreatedAt.After(latest.CreatedAt) {
+			latest = record
+		}
+	}
+	if latest == nil {
+		return loginStatusOutput{}, false
+	}
+	return *latest, true
+}
+
 func (m *loginFlowManager) fail(loginID, message string, needsHuman bool) {
 	m.update(loginID, func(record *loginStatusOutput, now time.Time) {
 		record.Status = loginStatusFailed

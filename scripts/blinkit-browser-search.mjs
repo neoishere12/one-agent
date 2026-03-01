@@ -199,7 +199,15 @@ async function launchBrowserSession(chromium, fingerprint, timeout) {
   try {
     context = await chromium.launchPersistentContext(profileDir, launchOptions);
   } catch (err) {
-    throw displayError(profileLockError(err, profileDir));
+    const mapped = displayError(profileLockError(err, profileDir));
+    if (!localStatePrefsError(err) && !localStatePrefsError(mapped)) throw mapped;
+    if (!resetCorruptLocalState(profileDir)) throw mapped;
+    debugLog("retrying launch after Local State reset");
+    try {
+      context = await chromium.launchPersistentContext(profileDir, launchOptions);
+    } catch (retryErr) {
+      throw displayError(profileLockError(retryErr, profileDir));
+    }
   }
   context.setDefaultTimeout(timeout);
   context.setDefaultNavigationTimeout(timeout);
@@ -370,6 +378,23 @@ function toOptionalNumber(value) {
 
 function print(payload) { process.stdout.write(`${JSON.stringify(payload)}\n`); }
 function cleanError(err) { if (!err) return "unknown error"; return (typeof err === "string" ? err : err.message || String(err)).replace(/\s+/g, " ").trim(); }
+function localStatePrefsError(err) {
+  const lower = cleanError(err).toLowerCase();
+  return lower.includes("failed to read prefs") && lower.includes("local state");
+}
+function resetCorruptLocalState(profileDir) {
+  const localState = path.join(profileDir, "Local State");
+  if (!fs.existsSync(localState)) return false;
+  try {
+    const backup = `${localState}.corrupt-${Date.now()}`;
+    fs.renameSync(localState, backup);
+    debugLog(`moved corrupt Local State file to ${backup}`);
+    return true;
+  } catch (err) {
+    debugLog(`warning: failed to rotate Local State file: ${cleanError(err)}`);
+    return false;
+  }
+}
 function displayError(err) {
   const msg = cleanError(err);
   const lower = msg.toLowerCase();

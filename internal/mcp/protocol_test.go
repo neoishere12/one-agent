@@ -40,6 +40,12 @@ func TestToolsListIncludesExpectedTools(t *testing.T) {
 	if len(out.Tools) < 10 {
 		t.Fatalf("expected at least 10 tools, got %d", len(out.Tools))
 	}
+	if !hasTool(out.Tools, "start_login") {
+		t.Fatal("missing start_login")
+	}
+	if !hasTool(out.Tools, "login_status") {
+		t.Fatal("missing login_status")
+	}
 	if !hasTool(out.Tools, "get_saved_payment_methods") {
 		t.Fatal("missing get_saved_payment_methods")
 	}

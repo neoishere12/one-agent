@@ -131,6 +131,8 @@ func toJSONText(v any) string {
 
 func mcpToolsCatalog() []mcpTool {
 	return []mcpTool{
+		startLoginTool(),
+		loginStatusTool(),
 		captureSessionTool(),
 		bootstrapBlinkitWebSessionTool(),
 		blinkitWorkerStatusTool(),

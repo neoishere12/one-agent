@@ -6,6 +6,32 @@ type captureSessionInput struct {
 	App string `json:"app"`
 }
 
+type startLoginInput struct {
+	App            string `json:"app"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
+type loginStatusInput struct {
+	LoginID string `json:"login_id"`
+}
+
+type loginStatusOutput struct {
+	LoginID                string                     `json:"login_id"`
+	App                    string                     `json:"app"`
+	Status                 string                     `json:"status"`
+	Ready                  bool                       `json:"ready"`
+	NeedsHumanVerification bool                       `json:"needs_human_verification"`
+	Message                string                     `json:"message"`
+	LoginURL               string                     `json:"login_url,omitempty"`
+	StatusTool             string                     `json:"status_tool"`
+	CreatedAt              time.Time                  `json:"created_at"`
+	UpdatedAt              time.Time                  `json:"updated_at"`
+	ExpiresAt              time.Time                  `json:"expires_at"`
+	CapturedAt             time.Time                  `json:"captured_at,omitempty"`
+	TokenExpiresAt         time.Time                  `json:"token_expires_at,omitempty"`
+	Worker                 *blinkitWorkerStatusOutput `json:"worker,omitempty"`
+}
+
 type bootstrapBlinkitWebSessionInput struct {
 	TimeoutSeconds int `json:"timeout_seconds"`
 }

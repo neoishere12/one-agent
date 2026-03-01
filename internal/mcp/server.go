@@ -23,6 +23,7 @@ type Server struct {
 	now           func() time.Time
 	searchLimit   time.Duration
 	hub           *sseHub
+	loginFlows    *loginFlowManager
 }
 
 // Option customizes Server behavior.
@@ -56,6 +57,7 @@ func New(st *store.Store, clients map[types.Platform]platforms.Platform, opts ..
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.loginFlows = newLoginFlowManager(s.now)
 	return s
 }
 
@@ -214,6 +216,10 @@ func (s *Server) callNativeTool(ctx context.Context, method string, params json.
 		return s.handleBlinkitWorkerStatus(ctx, params)
 	case "reverify_blinkit_session":
 		return s.handleReverifyBlinkitSession(ctx, params)
+	case "start_login":
+		return s.handleStartLogin(ctx, params)
+	case "login_status":
+		return s.handleLoginStatus(ctx, params)
 	case "list_sessions":
 		return s.handleListSessions(ctx)
 	case "refresh_tokens":

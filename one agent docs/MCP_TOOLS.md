@@ -9,6 +9,8 @@
 
 | Tool | Category | Side Effects |
 |---|---|---|
+| `start_login` | Setup | Starts async login flow state in memory; persists session on completion |
+| `login_status` | Setup/Diagnostics | None |
 | `capture_session` | Setup | None (polls store; external importer writes the session) |
 | `bootstrap_blinkit_web_session` | Setup | Writes Blinkit web session to store |
 | `blinkit_worker_status` | Setup/Diagnostics | None |
@@ -86,6 +88,64 @@ Polls the token store until a new session for the requested app is delivered via
 - `ErrCaptureTimeout` — no session received within 5 minutes (HAR not imported yet, wrong app selected, or ingest failed)
 
 **Side effects:** None on the VPS. An external importer (for example `proxyman-import`) writes the session via `/sessions/ingest`.
+
+---
+
+## `start_login`
+
+Starts an **async** login flow for Blinkit browser mode and returns a `login_id` you can poll via `login_status`.
+
+This is intended for external login handoff flows where a user completes login in a VPS-controlled browser profile (for example via your own remote-browser UI). The tool itself does not open a browser window in ChatGPT/Claude.
+
+**Input:**
+```json
+{
+  "app": "blinkit",
+  "timeout_seconds": 300
+}
+```
+`timeout_seconds` is optional (`0..900`, default `300`).
+
+**Output (example):**
+```json
+{
+  "login_id": "f4a5e3d2-....",
+  "app": "blinkit",
+  "status": "pending",
+  "ready": false,
+  "needs_human_verification": false,
+  "message": "Complete Blinkit login in the VPS-controlled browser profile, then poll login_status with login_id",
+  "login_url": "https://blinkit.com/",
+  "status_tool": "login_status",
+  "created_at": "2026-03-01T10:40:00Z",
+  "updated_at": "2026-03-01T10:40:00Z",
+  "expires_at": "2026-03-01T10:45:00Z"
+}
+```
+
+**Side effects:** starts in-memory login state and background bootstrap attempt; writes Blinkit session to store on success.
+
+---
+
+## `login_status`
+
+Polls status for a login flow started by `start_login`.
+
+**Input:**
+```json
+{
+  "login_id": "f4a5e3d2-...."
+}
+```
+
+**Output statuses:**
+- `pending`
+- `completed`
+- `failed`
+
+When completed, response includes `captured_at` and `token_expires_at`.
+
+**Side effects:** none.
 
 ---
 

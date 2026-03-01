@@ -33,7 +33,7 @@ const CHALLENGE_MARKERS = [
 ];
 
 // Realistic iPhone 14 Pro viewport for Blinkit mobile-web.
-const MOBILE_VIEWPORT = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
+const MOBILE_VIEWPORT = { width: 390, height: 844, deviceScaleFactor: 3 };
 
 // Default iOS Chrome UA — overridden by injected fingerprint when available.
 const DEFAULT_UA =
@@ -224,6 +224,9 @@ async function launchBrowserSession(puppeteer, fingerprint, timeout) {
     "--no-zygote",
     "--no-first-run",
     "--disable-extensions",
+    "--disable-session-crashed-bubble",
+    "--disable-restore-session-state",
+    "--no-default-browser-check",
     `--window-size=${MOBILE_VIEWPORT.width},${MOBILE_VIEWPORT.height}`,
   ];
 
@@ -242,6 +245,9 @@ async function launchBrowserSession(puppeteer, fingerprint, timeout) {
   const browser = await puppeteer.launch(launchOptions);
   const existingPages = await browser.pages();
   const page = existingPages[0] ?? (await browser.newPage());
+
+  // Reset to blank before any injection to prevent session-restore crashes.
+  await page.goto("about:blank", { waitUntil: "load", timeout: 10000 }).catch(() => {});
 
   // Proxy auth (only when proxy is configured).
   const proxyUser = String(process.env.BLINKIT_BROWSER_PROXY_USERNAME || "").trim();
@@ -788,7 +794,18 @@ async function runWorker(args) {
   const { browser, page, headless } = await launchBrowserSession(puppeteer, fingerprint, timeout);
   const bind = workerBind(args);
   const port = workerPort(args);
-  const state = { queue: Promise.resolve() };
+  const state = { queue: Promise.resolve(), page };
+
+  // Recreate page on crash so the worker stays alive.
+  page.on("crash", async () => {
+    debugLog("page crashed — recreating");
+    try {
+      state.page = await browser.newPage();
+      await state.page.goto("about:blank", { waitUntil: "load", timeout: 10000 }).catch(() => {});
+    } catch (err) {
+      debugLog(`page recreate failed: ${cleanError(err)}`);
+    }
+  });
 
   const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/health") {
@@ -798,8 +815,9 @@ async function runWorker(args) {
     if (req.method === "GET" && req.url === "/status") {
       try {
         const status = await enqueueTask(state, async () => {
-          const snapshot = await sessionStatusSnapshot(page);
-          return { ok: true, page_url: page.url(), title: snapshot.title, access_token_present: snapshot.accessTokenPresent, auth_key_present: snapshot.authKeyPresent, challenge_detected: textContainsChallenge(`${snapshot.title}\n${snapshot.body}`) };
+          const pg = state.page;
+          const snapshot = await sessionStatusSnapshot(pg);
+          return { ok: true, page_url: pg.url(), title: snapshot.title, access_token_present: snapshot.accessTokenPresent, auth_key_present: snapshot.authKeyPresent, challenge_detected: textContainsChallenge(`${snapshot.title}\n${snapshot.body}`) };
         });
         writeJSON(res, 200, status);
       } catch (err) {
@@ -827,11 +845,11 @@ async function runWorker(args) {
           const lng = toOptionalNumber(body.lng);
           const st = searchTimeoutMs(body);
           debugLog(`search start mode=worker headless=${headless} timeout_ms=${st} query=${query}`);
-          return runSearch(browser, page, query, lat, lng, st);
+          return runSearch(browser, state.page, query, lat, lng, st);
         }
         const bt = bootstrapTimeoutMs(body);
         debugLog(`bootstrap start mode=worker headless=${headless} timeout_ms=${bt}`);
-        return runBootstrapFlow(page, bt);
+        return runBootstrapFlow(state.page, bt);
       });
       writeJSON(res, 200, result);
     } catch (err) {

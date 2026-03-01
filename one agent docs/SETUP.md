@@ -216,15 +216,20 @@ You no longer need Proxyman running. The VPS runs silently. All future orders go
 
 If Blinkit keeps returning `403` / `device fingerprint rejected` even after fresh HAR captures, switch Blinkit `search_product` to browser-backed mode.
 
-This mode runs a Playwright helper (`scripts/blinkit-browser-search.mjs`) from the server process and reads live search payloads from `blinkit.com` in a persistent Chromium profile.
+The helper uses **puppeteer-extra + stealth plugin + fingerprint injection** (iOS Chrome mobile fingerprint) so headless Chromium is nearly indistinguishable from a real iPhone browser.
 
-### 1) Install Playwright on the machine running `./bin/server`
+### 1) Install Node packages
 
 ```bash
-cd /opt/shopping-agent   # or your local repo path
-npm install --no-save playwright
-npx playwright install chromium
+cd /opt/one-agent   # or your local repo path
+npm install
+npx playwright install chromium   # reuses the Playwright Chromium binary
 ```
+
+`npm install` reads `package.json` and installs:
+- `puppeteer-extra` + `puppeteer-extra-plugin-stealth` — patches navigator.webdriver, WebGL, canvas, ~20 detection vectors
+- `puppeteer-core` — browser automation (uses the Playwright Chromium binary)
+- `@apify/fingerprint-generator` + `fingerprint-injector` — injects a realistic iOS Chrome screen/font/WebGL fingerprint
 
 ### 2) Bootstrap a logged-in Blinkit browser profile once
 
@@ -287,6 +292,24 @@ export BLINKIT_BROWSER_PROXY_SERVER=http://<proxy-host>:<port>
 export BLINKIT_BROWSER_PROXY_USERNAME=<username>
 export BLINKIT_BROWSER_PROXY_PASSWORD=<password>
 ```
+
+**Optional — inject your iPhone's real cookies** (strongest anti-fingerprint signal):
+
+Export cookies from Proxyman as a JSON array and point the helper to the file:
+```bash
+# cookies.json format: [{name, value, domain, path, httpOnly, secure, sameSite}]
+export BLINKIT_BROWSER_COOKIES_FILE=/opt/one-agent/.data/blinkit-cookies.json
+```
+
+**Optional — curl-impersonate for direct API calls** (correct TLS/JA3 fingerprint, bypasses browser entirely for the search request):
+```bash
+# Install curl-impersonate on VPS (Ubuntu):
+curl -sL https://github.com/lwthiker/curl-impersonate/releases/latest/download/curl-impersonate-chrome.x86_64-linux-gnu.tar.gz | tar -xz -C /usr/local/bin
+# Point the helper to the binary:
+export BLINKIT_CURL_IMPERSONATE=/usr/local/bin/curl_chrome120
+```
+
+When `BLINKIT_CURL_IMPERSONATE` is set, the helper uses curl-impersonate for the search request with your captured session cookies — the browser is still launched to maintain the persistent profile and read cookies, but the actual API call uses the correct Chrome 120 TLS fingerprint.
 
 Worker health check:
 ```bash

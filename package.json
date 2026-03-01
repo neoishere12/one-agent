@@ -1,0 +1,17 @@
+{
+  "name": "one-agent-browser",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Browser helper for Blinkit stealth search",
+  "scripts": {
+    "worker": "node scripts/blinkit-browser-search.mjs --worker"
+  },
+  "dependencies": {
+    "@apify/fingerprint-generator": "^3.1.5",
+    "fingerprint-injector": "^2.1.6",
+    "puppeteer-core": "^22.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}

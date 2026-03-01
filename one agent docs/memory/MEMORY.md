@@ -48,6 +48,7 @@ types → config → store → platforms → mcp → cmd
 - **Stage 27** (2026-02-28): Browser bridge stderr/stdout split — Go bridge now parses helper JSON from stdout only and keeps stderr as diagnostics, preventing `invalid browser helper JSON` failures when `BLINKIT_BROWSER_DEBUG=true`
 - **Stage 28** (2026-02-28): Persistent browser worker mode — helper now supports long-lived `--worker` HTTP server (`/health`, `POST /search`) and MCP bridge can reuse it via `BLINKIT_BROWSER_WORKER_URL`, eliminating per-search browser relaunches
 - **Stage 29** (2026-02-28): VPS browser-worker robustness — Blinkit helper now detects challenge pages earlier, adds DOM product extraction fallback before in-page fetch, exposes worker `GET /status` diagnostics, and returns clearer `human_verification_required` paths during search/bootstrap
+- **Stage 30** (2026-03-01): Blinkit helper rewritten — Playwright → puppeteer-extra + stealth + fingerprint injection (iOS Chrome mobile). Adds `BLINKIT_BROWSER_COOKIES_FILE` (inject iPhone cookies from Proxyman export) and `BLINKIT_CURL_IMPERSONATE` (direct API calls via curl-impersonate for correct TLS/JA3 fingerprint). `package.json` created at repo root. All env/CLI/output interfaces unchanged; Go bridge code unaffected.
 
 ## Key Files (Latest)
 - `internal/types/types.go` — AppSession, Product, Order, Address, PaymentMethod, Platform

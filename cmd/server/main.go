@@ -40,14 +40,7 @@ func runServer() error {
 		mcp.WithIngestRateLimit(cfg.IngestRateLimitMax, cfg.IngestRateLimitWindow),
 	)
 
-	mux := http.NewServeMux()
-	mux.Handle("/rpc", mcpHandler)
-	mux.Handle("/mcp", mcpHandler)
-	mux.Handle("/sse", mcpHandler)
-	mux.Handle("/messages", mcpHandler)
-	mux.Handle("/message", mcpHandler)
-	mux.Handle("/health", mcpHandler)
-	mux.Handle("/sessions/ingest", mcpHandler)
+	mux := newHTTPMux(mcpHandler)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.MCPPort),
@@ -61,6 +54,19 @@ func runServer() error {
 		return nil
 	}
 	return fmt.Errorf("listen: %w", err)
+}
+
+func newHTTPMux(mcpHandler http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/rpc", mcpHandler)
+	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/sse", mcpHandler)
+	mux.Handle("/messages", mcpHandler)
+	mux.Handle("/message", mcpHandler)
+	mux.Handle("/health", mcpHandler)
+	mux.Handle("/sessions/ingest", mcpHandler)
+	mux.Handle("/login/blinkit", mcpHandler)
+	return mux
 }
 
 func newPlatformClients(st *store.Store) map[types.Platform]platforms.Platform {

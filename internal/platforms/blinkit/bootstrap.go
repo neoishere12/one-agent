@@ -193,12 +193,16 @@ func mapBootstrapAddresses(in []browserAddress) []types.Address {
 	for _, address := range in {
 		id := strings.TrimSpace(address.ID)
 		full := strings.TrimSpace(address.FullAddress)
+		label := strings.TrimSpace(address.Label)
+		if full == "" {
+			full = label
+		}
 		if id == "" || full == "" {
 			continue
 		}
 		out = append(out, types.Address{
 			ID:        id,
-			Label:     strings.TrimSpace(address.Label),
+			Label:     label,
 			Line1:     full,
 			Lat:       address.Lat,
 			Lng:       address.Lng,

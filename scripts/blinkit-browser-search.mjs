@@ -610,6 +610,13 @@ async function fetchBootstrapMetadata(page) {
     if (authKey) headers.auth_key = authKey;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
+    const parseMaybeJSON = (raw) => {
+      if (typeof raw !== "string") return null;
+      const text = raw.trim();
+      if (!text || text.length > 500000) return null;
+      if (!(text.startsWith("{") || text.startsWith("["))) return null;
+      try { return JSON.parse(text); } catch { return null; }
+    };
     const walk = (value, visit) => {
       if (!value) return;
       if (Array.isArray(value)) { for (const item of value) walk(item, visit); return; }
@@ -617,29 +624,54 @@ async function fetchBootstrapMetadata(page) {
       visit(value);
       for (const item of Object.values(value)) walk(item, visit);
     };
+    const addressFromObject = (obj) => {
+      const id = safeGet(obj, "id", "address_id", "addressId");
+      const label = safeGet(obj, "label", "name", "tag", "title");
+      const full = safeGet(obj, "full_address", "fullAddress", "address", "display_address", "displayAddress");
+      const lat = safeNum(obj, "lat", "latitude");
+      const lng = safeNum(obj, "lng", "lon", "longitude");
+      if (!id) return null;
+      if (!full && !label && lat === null && lng === null) return null;
+      return {
+        id,
+        label,
+        full_address: full || label,
+        lat,
+        lng,
+        is_default: safeBool(obj, "is_default", "default"),
+      };
+    };
+    const collectRoots = (seed) => {
+      const roots = [];
+      const push = (value) => { if (value && typeof value === "object") roots.push(value); };
+      push(seed);
+      try { push(window.__NEXT_DATA__); } catch {}
+      try { push(window.__INITIAL_STATE__); } catch {}
+      for (const value of Object.values(ls)) {
+        const parsed = parseMaybeJSON(value);
+        if (parsed) push(parsed);
+      }
+      for (const script of Array.from(document.scripts).slice(0, 80)) {
+        const parsed = parseMaybeJSON(script.textContent || "");
+        if (parsed) push(parsed);
+      }
+      return roots;
+    };
     try {
+      const addresses = [];
       const resp = await fetch("/api/v1/config/primary?fetch_nearest_addresses=true", {
         method: "GET",
         credentials: "include",
         headers,
         signal: controller.signal,
       });
-      if (!resp.ok) return { addresses: [], payments: [] };
-      const json = await resp.json();
-      const addresses = [];
-      walk(json, (obj) => {
-        const id = safeGet(obj, "id", "address_id", "addressId");
-        const full = safeGet(obj, "full_address", "fullAddress", "address", "display_address", "displayAddress");
-        if (!id || !full) return;
-        addresses.push({
-          id,
-          label: safeGet(obj, "label", "name", "tag", "title"),
-          full_address: full,
-          lat: safeNum(obj, "lat", "latitude"),
-          lng: safeNum(obj, "lng", "lon", "longitude"),
-          is_default: safeBool(obj, "is_default", "default"),
+      const json = resp.ok ? await resp.json().catch(() => null) : null;
+      for (const root of collectRoots(json)) {
+        walk(root, (obj) => {
+          const address = addressFromObject(obj);
+          if (address) addresses.push(address);
         });
-      });
+      }
       return { addresses, payments: [] };
     } catch {
       return { addresses: [], payments: [] };
@@ -652,11 +684,11 @@ async function fetchBootstrapMetadata(page) {
     addresses: uniqueEntities((payload && payload.addresses) || [], (row) => row.id).map((row, index) => ({
       id: String(row.id || "").trim(),
       label: String(row.label || "").trim(),
-      full_address: String(row.full_address || "").trim(),
+      full_address: String(row.full_address || row.label || "").trim(),
       lat: typeof row.lat === "number" && Number.isFinite(row.lat) ? row.lat : 0,
       lng: typeof row.lng === "number" && Number.isFinite(row.lng) ? row.lng : 0,
       is_default: index === 0 ? true : Boolean(row.is_default),
-    })).filter((row) => row.id && row.full_address),
+    })).filter((row) => row.id && (row.full_address || row.label)),
     payments: uniqueEntities((payload && payload.payments) || [], (row) => row.id || row.token).map((row) => ({
       id: String(row.id || "").trim(),
       label: String(row.label || "").trim(),

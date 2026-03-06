@@ -46,7 +46,7 @@ echo '{"ok":true,"raw":{"products":[{"id":"p1","name":"Amul Lassi","brand":"Amul
 
 func TestBootstrapWebSessionPersistsSession(t *testing.T) {
 	helper := writeExecutableScript(t, `#!/bin/sh
-echo '{"ok":true,"session":{"access_token":"v2::access","refresh_token":"v2::refresh","token_expires_at":"2030-01-01T00:00:00Z","device_headers":{"app_client":"consumer_web","platform":"mobile_web","user-agent":"Mozilla/5.0"}}}'
+echo '{"ok":true,"session":{"access_token":"v2::access","refresh_token":"v2::refresh","token_expires_at":"2030-01-01T00:00:00Z","device_headers":{"app_client":"consumer_web","platform":"mobile_web","user-agent":"Mozilla/5.0"},"addresses":[{"id":"207580381","label":"Home","full_address":"Pune, Maharashtra","lat":18.5204,"lng":73.8567,"is_default":true}]}}'
 `)
 	t.Setenv("BLINKIT_BROWSER_NODE", "/bin/sh")
 	t.Setenv("BLINKIT_BROWSER_HELPER", helper)
@@ -73,5 +73,47 @@ echo '{"ok":true,"session":{"access_token":"v2::access","refresh_token":"v2::ref
 	}
 	if stored.AccessToken != "v2::access" {
 		t.Fatalf("stored access token mismatch: %q", stored.AccessToken)
+	}
+	if len(stored.Addresses) != 1 || stored.Addresses[0].ID != "207580381" {
+		t.Fatalf("stored addresses mismatch: %+v", stored.Addresses)
+	}
+}
+
+func TestBootstrapWebSessionPreservesExistingMetadataWhenHelperReturnsAuthOnly(t *testing.T) {
+	helper := writeExecutableScript(t, `#!/bin/sh
+echo '{"ok":true,"session":{"access_token":"v2::access-new","refresh_token":"v2::refresh-new","token_expires_at":"2030-01-01T00:00:00Z","device_headers":{"app_client":"consumer_web","platform":"mobile_web","user-agent":"Mozilla/5.0"}}}'
+`)
+	t.Setenv("BLINKIT_BROWSER_NODE", "/bin/sh")
+	t.Setenv("BLINKIT_BROWSER_HELPER", helper)
+	t.Setenv("BLINKIT_BROWSER_WORKER_URL", "")
+	t.Setenv("BLINKIT_BROWSER_BOOTSTRAP_TIMEOUT", "10s")
+
+	s := newTestStore(t)
+	if err := s.Set(context.Background(), types.PlatformBlinkit, &types.AppSession{
+		App:          types.PlatformBlinkit,
+		AccessToken:  "old-access",
+		RefreshToken: "old-refresh",
+		ExpiresAt:    time.Now().Add(24 * time.Hour),
+		Addresses: []types.Address{
+			{ID: "addr-1", Label: "Home", Line1: "Baner, Pune", IsDefault: true},
+		},
+		Payments: []types.PaymentMethod{
+			{ID: "pay-1", Label: "Visa 4242", Token: "tok-1", Type: "card", IsDefault: true},
+		},
+		CapturedAt: time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed store: %v", err)
+	}
+
+	session, err := blinkit.BootstrapWebSession(context.Background(), s)
+	if err != nil {
+		t.Fatalf("BootstrapWebSession: %v", err)
+	}
+	if len(session.Addresses) != 1 || session.Addresses[0].ID != "addr-1" {
+		t.Fatalf("expected existing address preserved, got %+v", session.Addresses)
+	}
+	if len(session.Payments) != 1 || session.Payments[0].ID != "pay-1" {
+		t.Fatalf("expected existing payment preserved, got %+v", session.Payments)
 	}
 }

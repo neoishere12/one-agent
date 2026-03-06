@@ -558,9 +558,128 @@ async function readSessionSnapshot(context, page) {
   return { accessToken, refreshToken, userAgent: storage.userAgent || "" };
 }
 
-function buildBootstrapResult(snapshot) {
+function uniqueEntities(rows, getKey) {
+  const out = []; const seen = new Set();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = String(getKey(row) || "").trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+async function fetchBootstrapMetadata(page) {
+  const payload = await page.evaluate(async () => {
+    const decodeMaybe = (v) => { try { return decodeURIComponent(v); } catch { return v; } };
+    const safeGet = (o, ...keys) => { for (const k of keys) { const v = o?.[k]; if (typeof v === "string" && v.trim()) return v.trim(); if (typeof v === "number" && Number.isFinite(v)) return String(v); } return ""; };
+    const safeNum = (o, ...keys) => { for (const k of keys) { const v = o?.[k]; if (typeof v === "number" && Number.isFinite(v)) return v; if (typeof v === "string" && v.trim()) { const p = Number.parseFloat(v); if (Number.isFinite(p)) return p; } } return null; };
+    const safeBool = (o, ...keys) => { for (const k of keys) { const v = o?.[k]; if (typeof v === "boolean") return v; if (typeof v === "number") return v > 0; if (typeof v === "string") { const lower = v.trim().toLowerCase(); if (["true", "yes", "1", "default"].includes(lower)) return true; if (["false", "no", "0"].includes(lower)) return false; } } return false; };
+    const cookieMap = () => {
+      const out = {};
+      for (const entry of (document.cookie || "").split(";")) {
+        const part = entry.trim(); if (!part) continue;
+        const idx = part.indexOf("=");
+        if (idx <= 0) continue;
+        out[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+      }
+      return out;
+    };
+    const localStore = () => {
+      const out = {}; const len = (() => { try { return window.localStorage.length; } catch { return 0; } })();
+      for (let i = 0; i < len; i++) {
+        const key = (() => { try { return window.localStorage.key(i); } catch { return ""; } })();
+        if (!key) continue;
+        out[key] = (() => { try { return window.localStorage.getItem(key); } catch { return ""; } })() || "";
+      }
+      return out;
+    };
+    const ls = localStore();
+    const cookies = cookieMap();
+    const values = [...Object.values(ls), ...Object.values(cookies).map((v) => decodeMaybe(v))].filter((v) => typeof v === "string");
+    const findByKeys = (...keys) => {
+      const norm = new Set(keys.map((k) => k.toLowerCase()));
+      for (const [k, v] of Object.entries(ls)) if (norm.has(k.toLowerCase()) && typeof v === "string" && v.trim()) return v.trim();
+      for (const [k, v] of Object.entries(cookies)) if (norm.has(k.toLowerCase())) { const d = decodeMaybe(v); if (d.trim()) return d.trim(); }
+      return "";
+    };
+    const accessToken = findByKeys("gr_1_accessToken", "access_token", "accessToken") || values.find((v) => v.startsWith("v2::")) || "";
+    const authKey = findByKeys("auth_key", "refresh_token", "refreshToken", "gr_1_authKey", "gr_1_refreshToken") || accessToken;
+    const headers = { accept: "application/json,text/plain,*/*", app_client: "consumer_web", platform: "mobile_web" };
+    if (accessToken) headers.access_token = accessToken;
+    if (authKey) headers.auth_key = authKey;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    const walk = (value, visit) => {
+      if (!value) return;
+      if (Array.isArray(value)) { for (const item of value) walk(item, visit); return; }
+      if (typeof value !== "object") return;
+      visit(value);
+      for (const item of Object.values(value)) walk(item, visit);
+    };
+    try {
+      const resp = await fetch("/api/v1/config/primary?fetch_nearest_addresses=true", {
+        method: "GET",
+        credentials: "include",
+        headers,
+        signal: controller.signal,
+      });
+      if (!resp.ok) return { addresses: [], payments: [] };
+      const json = await resp.json();
+      const addresses = [];
+      walk(json, (obj) => {
+        const id = safeGet(obj, "id", "address_id", "addressId");
+        const full = safeGet(obj, "full_address", "fullAddress", "address", "display_address", "displayAddress");
+        if (!id || !full) return;
+        addresses.push({
+          id,
+          label: safeGet(obj, "label", "name", "tag", "title"),
+          full_address: full,
+          lat: safeNum(obj, "lat", "latitude"),
+          lng: safeNum(obj, "lng", "lon", "longitude"),
+          is_default: safeBool(obj, "is_default", "default"),
+        });
+      });
+      return { addresses, payments: [] };
+    } catch {
+      return { addresses: [], payments: [] };
+    } finally {
+      clearTimeout(timer);
+    }
+  }).catch(() => ({ addresses: [], payments: [] }));
+
+  return {
+    addresses: uniqueEntities((payload && payload.addresses) || [], (row) => row.id).map((row, index) => ({
+      id: String(row.id || "").trim(),
+      label: String(row.label || "").trim(),
+      full_address: String(row.full_address || "").trim(),
+      lat: typeof row.lat === "number" && Number.isFinite(row.lat) ? row.lat : 0,
+      lng: typeof row.lng === "number" && Number.isFinite(row.lng) ? row.lng : 0,
+      is_default: index === 0 ? true : Boolean(row.is_default),
+    })).filter((row) => row.id && row.full_address),
+    payments: uniqueEntities((payload && payload.payments) || [], (row) => row.id || row.token).map((row) => ({
+      id: String(row.id || "").trim(),
+      label: String(row.label || "").trim(),
+      token: String(row.token || "").trim(),
+      type: String(row.type || "").trim(),
+      is_default: Boolean(row.is_default),
+    })).filter((row) => row.token),
+  };
+}
+
+function buildBootstrapResult(snapshot, metadata = {}) {
   const now = new Date();
-  return { ok: true, session: { access_token: snapshot.accessToken, refresh_token: snapshot.refreshToken, token_expires_at: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(), device_headers: { app_client: "consumer_web", platform: "mobile_web", "user-agent": snapshot.userAgent || "" } } };
+  return {
+    ok: true,
+    session: {
+      access_token: snapshot.accessToken,
+      refresh_token: snapshot.refreshToken,
+      token_expires_at: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      device_headers: { app_client: "consumer_web", platform: "mobile_web", "user-agent": snapshot.userAgent || "" },
+      addresses: Array.isArray(metadata.addresses) ? metadata.addresses : [],
+      payments: Array.isArray(metadata.payments) ? metadata.payments : [],
+    },
+  };
 }
 
 // ─── bootstrap flow ───────────────────────────────────────────────────────────
@@ -573,7 +692,7 @@ async function runBootstrapFlow(context, page, timeout, onStatus = null) {
   if (onStatus) onStatus(status);
   if (textContainsChallenge(`${status.title}\n${status.body}`)) return { ok: false, error: challengeError };
   let snapshot = await readSessionSnapshot(context, page);
-  if (snapshot.accessToken) return buildBootstrapResult(snapshot);
+  if (snapshot.accessToken) return buildBootstrapResult(snapshot, await fetchBootstrapMetadata(page));
   debugLog("bootstrap awaiting login/session in persistent profile");
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2000));
@@ -581,7 +700,7 @@ async function runBootstrapFlow(context, page, timeout, onStatus = null) {
     if (onStatus) onStatus(status);
     if (textContainsChallenge(`${status.title}\n${status.body}`)) return { ok: false, error: challengeError };
     snapshot = await readSessionSnapshot(context, page);
-    if (snapshot.accessToken) return buildBootstrapResult(snapshot);
+    if (snapshot.accessToken) return buildBootstrapResult(snapshot, await fetchBootstrapMetadata(page));
   }
   status = await sessionStatusSnapshot(page);
   if (onStatus) onStatus(status);

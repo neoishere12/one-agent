@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,6 +32,25 @@ type browserBootstrapSession struct {
 	RefreshToken  string            `json:"refresh_token"`
 	TokenExpires  time.Time         `json:"token_expires_at"`
 	DeviceHeaders map[string]string `json:"device_headers"`
+	Addresses     []browserAddress  `json:"addresses"`
+	Payments      []browserPayment  `json:"payments"`
+}
+
+type browserAddress struct {
+	ID          string  `json:"id"`
+	Label       string  `json:"label"`
+	FullAddress string  `json:"full_address"`
+	Lat         float64 `json:"lat"`
+	Lng         float64 `json:"lng"`
+	IsDefault   bool    `json:"is_default"`
+}
+
+type browserPayment struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Token     string `json:"token"`
+	Type      string `json:"type"`
+	IsDefault bool   `json:"is_default"`
 }
 
 // BootstrapWebSession captures a Blinkit web session using the browser helper
@@ -48,6 +68,7 @@ func BootstrapWebSession(ctx context.Context, st *store.Store) (*types.AppSessio
 	if err != nil {
 		return nil, err
 	}
+	mergeBootstrapMetadata(ctx, st, session)
 	if err := st.Set(ctx, types.PlatformBlinkit, session); err != nil {
 		return nil, fmt.Errorf("save blinkit session: %w", err)
 	}
@@ -138,9 +159,78 @@ func normalizeBootstrapSession(payload *browserBootstrapOutput) (*types.AppSessi
 		RefreshToken:  refresh,
 		ExpiresAt:     expires,
 		DeviceHeaders: headers,
+		Addresses:     mapBootstrapAddresses(payload.Session.Addresses),
+		Payments:      mapBootstrapPayments(payload.Session.Payments),
 		CapturedAt:    now,
 		UpdatedAt:     now,
 	}, nil
+}
+
+func mergeBootstrapMetadata(ctx context.Context, st *store.Store, session *types.AppSession) {
+	if st == nil || session == nil {
+		return
+	}
+	existing, err := st.Get(ctx, types.PlatformBlinkit)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return
+		}
+		return
+	}
+	if len(session.Addresses) == 0 && len(existing.Addresses) > 0 {
+		session.Addresses = append([]types.Address(nil), existing.Addresses...)
+	}
+	if len(session.Payments) == 0 && len(existing.Payments) > 0 {
+		session.Payments = append([]types.PaymentMethod(nil), existing.Payments...)
+	}
+}
+
+func mapBootstrapAddresses(in []browserAddress) []types.Address {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.Address, 0, len(in))
+	for _, address := range in {
+		id := strings.TrimSpace(address.ID)
+		full := strings.TrimSpace(address.FullAddress)
+		if id == "" || full == "" {
+			continue
+		}
+		out = append(out, types.Address{
+			ID:        id,
+			Label:     strings.TrimSpace(address.Label),
+			Line1:     full,
+			Lat:       address.Lat,
+			Lng:       address.Lng,
+			IsDefault: address.IsDefault,
+		})
+	}
+	return out
+}
+
+func mapBootstrapPayments(in []browserPayment) []types.PaymentMethod {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.PaymentMethod, 0, len(in))
+	for _, payment := range in {
+		token := strings.TrimSpace(payment.Token)
+		if token == "" {
+			continue
+		}
+		id := strings.TrimSpace(payment.ID)
+		if id == "" {
+			id = token
+		}
+		out = append(out, types.PaymentMethod{
+			ID:        id,
+			Type:      strings.TrimSpace(payment.Type),
+			Label:     strings.TrimSpace(payment.Label),
+			Token:     token,
+			IsDefault: payment.IsDefault,
+		})
+	}
+	return out
 }
 
 func cloneSessionHeaders(in map[string]string) map[string]string {

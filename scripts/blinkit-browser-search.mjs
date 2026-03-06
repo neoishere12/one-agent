@@ -22,6 +22,9 @@ const DEFAULT_WORKER_PORT = 42199;
 const DEFAULT_WORKER_BIND = "127.0.0.1";
 const SEARCH_HOST_SUFFIX = "blinkit.com";
 const SEARCH_PATH = "/v1/layout/search";
+const CART_PATH = "/v2/cart/items";
+const CHECKOUT_PATH = "/v2/checkout/init";
+const PAY_PATH = "/v2/checkout/confirm";
 const CHALLENGE_MARKERS = [
   "just a moment",
   "attention required",
@@ -366,6 +369,179 @@ async function fetchSearchViaPage(page, query, lat, lng, timeout) {
     throw new Error(snippet ? `in-page fetch status ${raw.status} (${raw.url}): ${snippet}` : `in-page fetch status ${raw.status} (${raw.url})`);
   }
   try { return { url: raw.url, status: raw.status, body: JSON.parse(raw.text) }; } catch { throw new Error("in-page fetch returned non-JSON response"); }
+}
+
+async function ensureBlinkitPage(page, timeout) {
+  if (safePageURL(page).startsWith("https://blinkit.com")) return;
+  await page.goto("https://blinkit.com/", { waitUntil: "domcontentloaded", timeout });
+}
+
+async function fetchMetadataViaPage(page, timeout) {
+  await ensureBlinkitPage(page, timeout);
+  const metadata = await fetchBootstrapMetadata(page);
+  return {
+    ok: true,
+    addresses: Array.isArray(metadata.addresses) ? metadata.addresses : [],
+    payments: Array.isArray(metadata.payments) ? metadata.payments : [],
+  };
+}
+
+async function placeOrderViaPage(page, productID, quantity, addressID, paymentToken, timeout) {
+  await ensureBlinkitPage(page, timeout);
+  const result = await page.evaluate(
+    async ({ productID, quantity, addressID, paymentToken, timeout, cartPath, checkoutPath, payPath }) => {
+      const pick = (...vals) => {
+        for (const value of vals) {
+          if (typeof value === "string" && value.trim()) return value.trim();
+        }
+        return "";
+      };
+      const toNumber = (...vals) => {
+        for (const value of vals) {
+          if (typeof value === "number" && Number.isFinite(value)) return value;
+          if (typeof value === "string" && value.trim()) {
+            const parsed = Number.parseFloat(value.replace(/[^\d.]/g, ""));
+            if (Number.isFinite(parsed)) return parsed;
+          }
+        }
+        return 0;
+      };
+      const textSnippet = (value) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 220) : "";
+      const readCookieMap = () => {
+        const out = {};
+        for (const entry of (document.cookie || "").split(";")) {
+          const part = entry.trim();
+          if (!part) continue;
+          const idx = part.indexOf("=");
+          if (idx <= 0) continue;
+          out[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+        }
+        return out;
+      };
+      const readLS = (...keys) => {
+        for (const key of keys) {
+          try {
+            const value = window.localStorage.getItem(key);
+            if (typeof value === "string" && value.trim()) return value.trim();
+          } catch {}
+        }
+        return "";
+      };
+      const cookies = readCookieMap();
+      const decodeMaybe = (value) => {
+        try { return decodeURIComponent(value); } catch { return value; }
+      };
+      const accessToken = pick(
+        readLS("gr_1_accessToken", "access_token", "accessToken"),
+        decodeMaybe(cookies.gr_1_accessToken || ""),
+      );
+      const authKey = pick(
+        readLS("auth_key", "gr_1_authKey", "refresh_token", "refreshToken"),
+        decodeMaybe(cookies.auth_key || ""),
+      );
+      const deviceID = pick(readLS("gr_1_deviceId", "device_id"), decodeMaybe(cookies.gr_1_deviceId || ""));
+      const sessionUUID = pick(readLS("session_uuid"), decodeMaybe(cookies.session_uuid || ""));
+      const headers = {
+        accept: "application/json,text/plain,*/*",
+        "content-type": "application/json",
+        app_client: "consumer_web",
+        platform: "mobile_web",
+        web_app_version: "1008010016",
+        rn_bundle_version: "1009003012",
+      };
+      if (accessToken) headers.access_token = accessToken;
+      if (authKey) headers.auth_key = authKey;
+      if (deviceID) headers.device_id = deviceID;
+      if (sessionUUID) headers.session_uuid = sessionUUID;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+      const call = async (path, body) => {
+        const resp = await fetch(path, {
+          method: "POST",
+          credentials: "include",
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        const text = await resp.text();
+        let json = null;
+        try { json = JSON.parse(text); } catch {}
+        if (!resp.ok) {
+          return {
+            ok: false,
+            status: resp.status,
+            error: textSnippet(text) || `${path} status ${resp.status}`,
+          };
+        }
+        return { ok: true, json };
+      };
+      try {
+        const cart = await call(cartPath, { product_id: productID, quantity });
+        if (!cart.ok) return cart;
+        const cartID = pick(cart.json?.cart_id, cart.json?.cart?.id, cart.json?.data?.cart_id, cart.json?.data?.cart?.id);
+        if (!cartID) return { ok: false, status: 0, error: "cart_id missing from add_to_cart response" };
+
+        const checkout = await call(checkoutPath, { cart_id: cartID, address_id: addressID });
+        if (!checkout.ok) return checkout;
+        const checkoutID = pick(
+          checkout.json?.checkout_id,
+          checkout.json?.data?.checkout_id,
+          checkout.json?.checkout?.id,
+          checkout.json?.data?.checkout?.id,
+        );
+        if (!checkoutID) return { ok: false, status: 0, error: "checkout_id missing from checkout response" };
+
+        const pay = await call(payPath, { checkout_id: checkoutID, payment_token: paymentToken });
+        if (!pay.ok) return pay;
+        return {
+          ok: true,
+          order: {
+            id: pick(pay.json?.order_id, pay.json?.data?.order_id, pay.json?.order?.id, pay.json?.data?.order?.id, checkoutID),
+            status: pick(pay.json?.status, pay.json?.data?.status, pay.json?.order?.status, pay.json?.data?.order?.status, "confirmed"),
+            eta_minutes: toNumber(
+              pay.json?.eta_minutes,
+              pay.json?.data?.eta_minutes,
+              pay.json?.order?.eta_minutes,
+              pay.json?.data?.order?.eta_minutes,
+              checkout.json?.eta_minutes,
+              checkout.json?.data?.eta_minutes,
+            ),
+            total_rupees: toNumber(
+              pay.json?.total,
+              pay.json?.total_rupees,
+              pay.json?.grand_total,
+              pay.json?.amount,
+              pay.json?.data?.total,
+              pay.json?.data?.total_rupees,
+              pay.json?.data?.grand_total,
+            ),
+          },
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          status: 0,
+          error: err?.message ? String(err.message) : String(err),
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    { productID, quantity, addressID, paymentToken, timeout, cartPath: CART_PATH, checkoutPath: CHECKOUT_PATH, payPath: PAY_PATH }
+  );
+  if (!result?.ok) {
+    const error = cleanError(result?.error || "browser order request failed");
+    throw new Error(error);
+  }
+  return {
+    ok: true,
+    order: {
+      id: String(result.order?.id || "").trim(),
+      status: String(result.order?.status || "").trim(),
+      eta_minutes: Number.isFinite(result.order?.eta_minutes) ? result.order.eta_minutes : 0,
+      total_rupees: Number.isFinite(result.order?.total_rupees) ? result.order.total_rupees : 0,
+    },
+  };
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -779,6 +955,41 @@ async function runWorker(args) {
     if (req.method === "GET" && req.url === "/health") { writeJSON(res, 200, { status: "ok" }); return; }
     if (req.method === "GET" && req.url === "/status") {
       writeJSON(res, 200, state.status);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/metadata") {
+      let body = {};
+      try { body = await readJSONBody(req); } catch (err) { writeJSON(res, 400, { ok: false, error: `invalid JSON: ${cleanError(err)}` }); return; }
+      try {
+        const result = await enqueueTask(state, async () => {
+          await refreshWorkerStatusCache(state).catch(() => {});
+          const mt = bootstrapTimeoutMs(body);
+          debugLog(`metadata mode=worker timeout_ms=${mt}`);
+          try { return await fetchMetadataViaPage(state.page, mt); }
+          finally { await refreshWorkerStatusCache(state).catch(() => {}); }
+        });
+        writeJSON(res, 200, result);
+      } catch (err) { writeJSON(res, 200, { ok: false, error: cleanError(err) }); }
+      return;
+    }
+    if (req.method === "POST" && req.url === "/order") {
+      let body = {};
+      try { body = await readJSONBody(req); } catch (err) { writeJSON(res, 400, { ok: false, error: `invalid JSON: ${cleanError(err)}` }); return; }
+      try {
+        const result = await enqueueTask(state, async () => {
+          await refreshWorkerStatusCache(state).catch(() => {});
+          const ot = searchTimeoutMs(body);
+          const productID = String(body.product_id || "").trim();
+          const addressID = String(body.address_id || "").trim();
+          const paymentToken = String(body.payment_token || "").trim();
+          const quantity = Number.parseInt(body.quantity, 10) > 0 ? Number.parseInt(body.quantity, 10) : 1;
+          if (!productID || !addressID || !paymentToken) throw new Error("product_id, address_id, and payment_token are required");
+          debugLog(`order mode=worker timeout_ms=${ot} product_id=${productID}`);
+          try { return await placeOrderViaPage(state.page, productID, quantity, addressID, paymentToken, ot); }
+          finally { await refreshWorkerStatusCache(state).catch(() => {}); }
+        });
+        writeJSON(res, 200, result);
+      } catch (err) { writeJSON(res, 200, { ok: false, error: cleanError(err) }); }
       return;
     }
     if (req.method !== "POST" || (req.url !== "/search" && req.url !== "/bootstrap")) { writeJSON(res, 404, { ok: false, error: "not found" }); return; }

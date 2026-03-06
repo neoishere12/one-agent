@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"one-agent/internal/types"
 )
 
 var ErrBrowserWorkerNotConfigured = errors.New("blinkit browser worker url not configured")
@@ -23,6 +25,34 @@ type browserWorkerRequest struct {
 
 type browserBootstrapWorkerRequest struct {
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+}
+
+type browserMetadataOutput struct {
+	OK        bool             `json:"ok"`
+	Error     string           `json:"error"`
+	Addresses []browserAddress `json:"addresses"`
+	Payments  []browserPayment `json:"payments"`
+}
+
+type browserOrderWorkerRequest struct {
+	ProductID      string `json:"product_id"`
+	Quantity       int    `json:"quantity"`
+	AddressID      string `json:"address_id"`
+	PaymentToken   string `json:"payment_token"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+}
+
+type browserOrderOutput struct {
+	OK    bool               `json:"ok"`
+	Error string             `json:"error"`
+	Order browserOrderResult `json:"order"`
+}
+
+type browserOrderResult struct {
+	ID          string  `json:"id"`
+	Status      string  `json:"status"`
+	ETAMinutes  int     `json:"eta_minutes"`
+	TotalRupees float64 `json:"total_rupees"`
 }
 
 // BrowserWorkerStatus is the worker-reported browser session state used for
@@ -81,6 +111,59 @@ func bootstrapBrowserWorker(
 		return nil, err
 	}
 	return decodeBrowserBootstrapOutput(out)
+}
+
+func browserWorkerMetadata(
+	ctx context.Context,
+	baseURL string,
+) ([]types.Address, []types.PaymentMethod, error) {
+	req := browserBootstrapWorkerRequest{TimeoutSeconds: contextTimeoutSeconds(ctx)}
+	out, err := postBrowserWorker(ctx, baseURL, "/metadata", req)
+	if err != nil {
+		return nil, nil, err
+	}
+	var payload browserMetadataOutput
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return nil, nil, fmt.Errorf("invalid worker metadata JSON: %w: %s", err, clipBridgeOutput(out))
+	}
+	if !payload.OK {
+		return nil, nil, fmt.Errorf("browser metadata failed: %s", strings.TrimSpace(payload.Error))
+	}
+	return mapBootstrapAddresses(payload.Addresses), mapBootstrapPayments(payload.Payments), nil
+}
+
+func browserWorkerPlaceOrder(
+	ctx context.Context,
+	baseURL string,
+	productID, addressID, paymentToken string,
+	quantity int,
+) (types.Order, error) {
+	req := browserOrderWorkerRequest{
+		ProductID:      productID,
+		Quantity:       quantity,
+		AddressID:      addressID,
+		PaymentToken:   paymentToken,
+		TimeoutSeconds: contextTimeoutSeconds(ctx),
+	}
+	out, err := postBrowserWorker(ctx, baseURL, "/order", req)
+	if err != nil {
+		return types.Order{}, err
+	}
+	var payload browserOrderOutput
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return types.Order{}, fmt.Errorf("invalid worker order JSON: %w: %s", err, clipBridgeOutput(out))
+	}
+	if !payload.OK {
+		return types.Order{}, fmt.Errorf("browser order failed: %s", strings.TrimSpace(payload.Error))
+	}
+	return types.Order{
+		ID:          strings.TrimSpace(payload.Order.ID),
+		Platform:    types.PlatformBlinkit,
+		Status:      strings.TrimSpace(payload.Order.Status),
+		ETAMinutes:  payload.Order.ETAMinutes,
+		TotalRupees: payload.Order.TotalRupees,
+		PlacedAt:    time.Now(),
+	}, nil
 }
 
 func queryBrowserWorkerStatus(ctx context.Context, baseURL string) (*BrowserWorkerStatus, error) {

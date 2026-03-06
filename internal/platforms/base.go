@@ -99,6 +99,11 @@ func (b *BaseClient) LoadSessionRaw(ctx context.Context) (*types.AppSession, err
 	return b.st.Get(ctx, b.app)
 }
 
+// SaveSession persists the supplied session for this client's platform.
+func (b *BaseClient) SaveSession(ctx context.Context, session *types.AppSession) error {
+	return b.st.Set(ctx, b.app, session)
+}
+
 // doRefresh calls refresh, updates the session fields, and persists to store.
 func (b *BaseClient) doRefresh(ctx context.Context, sess *types.AppSession, refresh RefreshFunc) (*types.AppSession, error) {
 	slog.Info("token expiring — refreshing proactively",

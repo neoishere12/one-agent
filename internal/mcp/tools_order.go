@@ -2,12 +2,22 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"one-agent/internal/platforms"
+	"one-agent/internal/platforms/blinkit"
 	"one-agent/internal/types"
 )
+
+type browserOrderPlatform interface {
+	PlaceOrderViaBrowser(ctx context.Context, productID, addressID, paymentToken string, quantity int) (types.Order, error)
+}
+
+type browserSessionMetadataHydrator interface {
+	HydrateBrowserSessionMetadata(ctx context.Context) (*types.AppSession, error)
+}
 
 func (s *Server) handleGetSavedAddresses(ctx context.Context, raw []byte) (any, *toolError) {
 	var input getSavedAddressesInput
@@ -19,12 +29,9 @@ func (s *Server) handleGetSavedAddresses(ctx context.Context, raw []byte) (any, 
 		return nil, appErr
 	}
 
-	session, err := s.st.Get(ctx, app)
-	if err != nil {
-		if isStoreNotFound(err) {
-			return nil, invalidParams("session not found for app", err)
-		}
-		return nil, internalError("get_saved_addresses failed", err)
+	session, sessionErr := s.sessionForAppWithMetadata(ctx, app, true, false)
+	if sessionErr != nil {
+		return nil, sessionErr
 	}
 	return getSavedAddressesOutput{App: string(app), Addresses: mapAddresses(session)}, nil
 }
@@ -38,12 +45,9 @@ func (s *Server) handleGetSavedPaymentMethods(ctx context.Context, raw []byte) (
 	if appErr != nil {
 		return nil, appErr
 	}
-	session, err := s.st.Get(ctx, app)
-	if err != nil {
-		if isStoreNotFound(err) {
-			return nil, invalidParams("session not found for app", err)
-		}
-		return nil, internalError("get_saved_payment_methods failed", err)
+	session, sessionErr := s.sessionForAppWithMetadata(ctx, app, false, true)
+	if sessionErr != nil {
+		return nil, sessionErr
 	}
 	return getSavedPaymentMethodsOutput{
 		App:          string(app),
@@ -107,6 +111,15 @@ func (s *Server) executeOrder(
 	input validatedPlaceOrder,
 	paymentToken string,
 ) (types.Order, error) {
+	if browserClient, ok := client.(browserOrderPlatform); ok {
+		order, err := browserClient.PlaceOrderViaBrowser(ctx, input.productID, input.addressID, paymentToken, input.quantity)
+		if err == nil {
+			return order, nil
+		}
+		if !errors.Is(err, blinkit.ErrBrowserWorkerNotConfigured) {
+			return types.Order{}, err
+		}
+	}
 	cartID, err := client.AddToCart(ctx, input.productID, input.quantity)
 	if err != nil {
 		return types.Order{}, err
@@ -134,6 +147,57 @@ func (s *Server) sessionForApp(ctx context.Context, app types.Platform) (*types.
 		return nil, internalError("session lookup failed", err)
 	}
 	return session, nil
+}
+
+func (s *Server) sessionForAppWithMetadata(
+	ctx context.Context,
+	app types.Platform,
+	wantAddresses, wantPayments bool,
+) (*types.AppSession, *toolError) {
+	session, err := s.sessionForApp(ctx, app)
+	if err != nil {
+		return nil, err
+	}
+	if !needsBrowserMetadata(session, wantAddresses, wantPayments) {
+		return session, nil
+	}
+	client, clientErr := s.platform(app)
+	if clientErr != nil {
+		return nil, clientErr
+	}
+	hydrated, hydrateErr := hydrateBrowserMetadata(ctx, client)
+	if hydrateErr != nil {
+		return nil, hydrateErr
+	}
+	if hydrated != nil {
+		return hydrated, nil
+	}
+	return session, nil
+}
+
+func needsBrowserMetadata(session *types.AppSession, wantAddresses, wantPayments bool) bool {
+	if session == nil {
+		return false
+	}
+	if wantAddresses && len(session.Addresses) == 0 {
+		return true
+	}
+	return wantPayments && len(session.Payments) == 0
+}
+
+func hydrateBrowserMetadata(ctx context.Context, client platforms.Platform) (*types.AppSession, *toolError) {
+	hydrator, ok := client.(browserSessionMetadataHydrator)
+	if !ok {
+		return nil, nil
+	}
+	session, err := hydrator.HydrateBrowserSessionMetadata(ctx)
+	if err == nil {
+		return session, nil
+	}
+	if errors.Is(err, blinkit.ErrBrowserWorkerNotConfigured) {
+		return nil, nil
+	}
+	return nil, internalError("browser session metadata refresh failed", err)
 }
 
 func (s *Server) handleGetOrderStatus(ctx context.Context, raw []byte) (any, *toolError) {

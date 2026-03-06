@@ -34,6 +34,16 @@ type mockPlatform struct {
 	statusErr      error
 }
 
+type mockBrowserPlatform struct {
+	mockPlatform
+	browserOrder        types.Order
+	browserOrderErr     error
+	browserOrderCalls   int
+	hydratedSession     *types.AppSession
+	hydratedSessionErr  error
+	hydratedSessionCall int
+}
+
 func (m *mockPlatform) Search(_ context.Context, _ string, _, _ float64) ([]types.Product, error) {
 	return m.searchProducts, m.searchErr
 }
@@ -57,6 +67,16 @@ func (m *mockPlatform) RefreshToken(_ context.Context, _ string) (string, string
 
 func (m *mockPlatform) OrderStatus(_ context.Context, _ string) (string, int, error) {
 	return m.status, m.eta, m.statusErr
+}
+
+func (m *mockBrowserPlatform) PlaceOrderViaBrowser(_ context.Context, _ string, _ string, _ string, _ int) (types.Order, error) {
+	m.browserOrderCalls++
+	return m.browserOrder, m.browserOrderErr
+}
+
+func (m *mockBrowserPlatform) HydrateBrowserSessionMetadata(_ context.Context) (*types.AppSession, error) {
+	m.hydratedSessionCall++
+	return m.hydratedSession, m.hydratedSessionErr
 }
 
 func newTestStore(t *testing.T) *store.Store {

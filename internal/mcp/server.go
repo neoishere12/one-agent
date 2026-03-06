@@ -69,6 +69,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.handleIngest(w, r) {
 		return
 	}
+	if s.handleLoginPortal(w, r) {
+		return
+	}
 	switch r.URL.Path {
 	case "/sse":
 		s.handleSSEEndpoint(w, r)

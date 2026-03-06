@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -36,8 +35,15 @@ func (s *Server) handleStartLogin(ctx context.Context, raw []byte) (any, *toolEr
 	if timeoutErr != nil {
 		return nil, timeoutErr
 	}
-	loginURL := blinkitExternalLoginURL()
-	output := s.loginFlows.create(app, timeout, loginURL, startLoginMessage(loginURL))
+	output := s.loginFlows.create(app, timeout, "", startLoginMessage(""))
+	loginURL := blinkitStartLoginURL(output.LoginID)
+	output.LoginURL = loginURL
+	output.Message = startLoginMessage(loginURL)
+	s.loginFlows.update(output.LoginID, func(record *loginStatusOutput, now time.Time) {
+		record.LoginURL = loginURL
+		record.Message = output.Message
+		record.UpdatedAt = now
+	})
 	worker := s.fetchBlinkitWorkerStatus(ctx, defaultBlinkitWorkerStatusTimeout)
 	output.Worker = &worker
 	if !worker.WorkerConfigured || !worker.WorkerReachable {
@@ -101,11 +107,7 @@ func parseStartLoginTimeout(seconds int) (time.Duration, *toolError) {
 
 func startLoginMessage(loginURL string) string {
 	if loginURL == "" {
-		return "Complete Blinkit login in the VPS-controlled browser profile, then poll login_status with login_id. Set BLINKIT_EXTERNAL_LOGIN_URL if you want a clickable VPS login page URL."
+		return "Complete Blinkit login in the VPS-controlled browser profile, then poll login_status with login_id. Set MCP_PUBLIC_BASE_URL plus BLINKIT_EXTERNAL_LOGIN_URL_TEMPLATE (or BLINKIT_EXTERNAL_LOGIN_URL) if you want a phone-openable login link."
 	}
-	return "Complete Blinkit login in the VPS-controlled browser profile via login_url, then poll login_status with login_id"
-}
-
-func blinkitExternalLoginURL() string {
-	return strings.TrimSpace(os.Getenv("BLINKIT_EXTERNAL_LOGIN_URL"))
+	return "Open login_url, complete Blinkit login in the linked remote browser, then poll login_status with login_id"
 }

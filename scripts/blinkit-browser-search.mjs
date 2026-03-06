@@ -522,6 +522,28 @@ function decodeMaybe(v) { if (typeof v !== "string") return ""; try { return dec
 function firstNonEmpty(...vals) { for (const v of vals) if (typeof v === "string" && v.trim()) return v.trim(); return ""; }
 function findTokenByKey(store, cookies, keys) { const norm = new Set(keys.map((k) => k.toLowerCase())); for (const [k, v] of Object.entries(store)) if (norm.has(k.toLowerCase()) && String(v).trim()) return String(v).trim(); for (const c of cookies) if (norm.has(String(c.name).toLowerCase())) { const v = decodeMaybe(c.value); if (v.trim()) return v.trim(); } return ""; }
 function findAccessTokenFallback(store, cookies) { const cands = [...Object.values(store).filter((v) => typeof v === "string"), ...cookies.map((c) => decodeMaybe(c.value))]; return cands.find((v) => v.startsWith("v2::")) || ""; }
+function safePageURL(page) { try { return page.url(); } catch { return ""; } }
+function workerStatusFromSnapshot(page, snapshot) {
+  const title = typeof snapshot?.title === "string" ? snapshot.title : "";
+  const body = typeof snapshot?.body === "string" ? snapshot.body : "";
+  return {
+    ok: true,
+    page_url: safePageURL(page),
+    title,
+    access_token_present: Boolean(snapshot?.accessTokenPresent),
+    auth_key_present: Boolean(snapshot?.authKeyPresent),
+    challenge_detected: textContainsChallenge(`${title}\n${body}`),
+  };
+}
+async function refreshWorkerStatusCache(state) {
+  const snapshot = await sessionStatusSnapshot(state.page);
+  state.status = workerStatusFromSnapshot(state.page, snapshot);
+  return state.status;
+}
+function updateWorkerStatusCache(state, snapshot) {
+  state.status = workerStatusFromSnapshot(state.page, snapshot);
+  return state.status;
+}
 
 async function readSessionSnapshot(context, page) {
   const storage = await page.evaluate(() => {
@@ -543,21 +565,26 @@ function buildBootstrapResult(snapshot) {
 
 // ─── bootstrap flow ───────────────────────────────────────────────────────────
 
-async function runBootstrapFlow(context, page, timeout) {
+async function runBootstrapFlow(context, page, timeout, onStatus = null) {
   const challengeError = "human_verification_required: blinkit anti-bot challenge detected";
   const deadline = newDeadline(timeout);
   await page.goto("https://blinkit.com/", { waitUntil: "domcontentloaded", timeout });
-  if (await pageLooksLikeChallenge(page)) return { ok: false, error: challengeError };
+  let status = await sessionStatusSnapshot(page);
+  if (onStatus) onStatus(status);
+  if (textContainsChallenge(`${status.title}\n${status.body}`)) return { ok: false, error: challengeError };
   let snapshot = await readSessionSnapshot(context, page);
   if (snapshot.accessToken) return buildBootstrapResult(snapshot);
   debugLog("bootstrap awaiting login/session in persistent profile");
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2000));
-    if (await pageLooksLikeChallenge(page)) return { ok: false, error: challengeError };
+    status = await sessionStatusSnapshot(page);
+    if (onStatus) onStatus(status);
+    if (textContainsChallenge(`${status.title}\n${status.body}`)) return { ok: false, error: challengeError };
     snapshot = await readSessionSnapshot(context, page);
     if (snapshot.accessToken) return buildBootstrapResult(snapshot);
   }
-  const status = await sessionStatusSnapshot(page);
+  status = await sessionStatusSnapshot(page);
+  if (onStatus) onStatus(status);
   if (textContainsChallenge(`${status.title}\n${status.body}`)) return { ok: false, error: challengeError };
   return { ok: false, error: `access token not found; complete Blinkit login and retry bootstrap${status.title ? `; page_title="${status.title}"` : ""}` };
 }
@@ -589,18 +616,18 @@ async function runWorker(args) {
   const { context, page, headless } = await launchBrowserSession(chromium, fingerprint, timeout);
   const bind = workerBind(args);
   const port = workerPort(args);
-  const state = { queue: Promise.resolve(), context, page };
+  const state = {
+    queue: Promise.resolve(),
+    context,
+    page,
+    status: { ok: true, page_url: safePageURL(page), title: "", access_token_present: false, auth_key_present: false, challenge_detected: false },
+  };
+  await refreshWorkerStatusCache(state).catch(() => {});
 
   const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/health") { writeJSON(res, 200, { status: "ok" }); return; }
     if (req.method === "GET" && req.url === "/status") {
-      try {
-        const result = await enqueueTask(state, async () => {
-          const snap = await sessionStatusSnapshot(state.page);
-          return { ok: true, page_url: state.page.url(), title: snap.title, access_token_present: snap.accessTokenPresent, auth_key_present: snap.authKeyPresent, challenge_detected: textContainsChallenge(`${snap.title}\n${snap.body}`) };
-        });
-        writeJSON(res, 200, result);
-      } catch (err) { writeJSON(res, 200, { ok: false, error: cleanError(err) }); }
+      writeJSON(res, 200, state.status);
       return;
     }
     if (req.method !== "POST" || (req.url !== "/search" && req.url !== "/bootstrap")) { writeJSON(res, 404, { ok: false, error: "not found" }); return; }
@@ -608,16 +635,20 @@ async function runWorker(args) {
     try { body = await readJSONBody(req); } catch (err) { writeJSON(res, 400, { ok: false, error: `invalid JSON: ${cleanError(err)}` }); return; }
     try {
       const result = await enqueueTask(state, async () => {
+        await refreshWorkerStatusCache(state).catch(() => {});
         if (req.url === "/search") {
           const query = String(body.query || "").trim();
           if (!query) throw new Error("query is required");
           const st = searchTimeoutMs(body);
           debugLog(`search mode=worker timeout_ms=${st} query=${query}`);
-          return runSearch(state.context, state.page, query, toOptionalNumber(body.lat), toOptionalNumber(body.lng), st);
+          try { return await runSearch(state.context, state.page, query, toOptionalNumber(body.lat), toOptionalNumber(body.lng), st); }
+          finally { await refreshWorkerStatusCache(state).catch(() => {}); }
         }
         const bt = bootstrapTimeoutMs(body);
         debugLog(`bootstrap mode=worker timeout_ms=${bt}`);
-        return runBootstrapFlow(state.context, state.page, bt);
+        try {
+          return await runBootstrapFlow(state.context, state.page, bt, (snapshot) => updateWorkerStatusCache(state, snapshot));
+        } finally { await refreshWorkerStatusCache(state).catch(() => {}); }
       });
       writeJSON(res, 200, result);
     } catch (err) { writeJSON(res, 200, { ok: false, error: cleanError(err) }); }

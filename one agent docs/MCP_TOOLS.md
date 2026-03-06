@@ -97,7 +97,16 @@ Starts an **async** login flow for Blinkit browser mode and returns a `login_id`
 
 This is intended for external login handoff flows where a user completes login in a VPS-controlled browser profile (for example via your own remote-browser UI). The tool itself does not open a browser window in ChatGPT/Claude.
 
-`login_url` is returned only when `BLINKIT_EXTERNAL_LOGIN_URL` is configured in server env. If unset, follow `message` guidance and complete login in the worker's VPS-controlled profile directly.
+`login_url` is returned when either:
+- `MCP_PUBLIC_BASE_URL` is configured, in which case it points to the built-in Blinkit login portal on the MCP server
+- `BLINKIT_EXTERNAL_LOGIN_URL` or `BLINKIT_EXTERNAL_LOGIN_URL_TEMPLATE` is configured, in which case it points directly to your remote browser UI
+
+Template placeholders supported by `BLINKIT_EXTERNAL_LOGIN_URL_TEMPLATE`:
+- `{login_id}`
+- `{login_id_escaped}`
+- `{app}`
+- `{target_url}`
+- `{target_url_escaped}`
 
 **Input:**
 ```json
@@ -116,8 +125,8 @@ This is intended for external login handoff flows where a user completes login i
   "status": "pending",
   "ready": false,
   "needs_human_verification": false,
-  "message": "Complete Blinkit login in the VPS-controlled browser profile via login_url, then poll login_status with login_id",
-  "login_url": "https://<your-vps-login-ui>/",
+  "message": "Open login_url, complete Blinkit login in the linked remote browser, then poll login_status with login_id",
+  "login_url": "https://<your-public-mcp>/login/blinkit?login_id=...",
   "status_tool": "login_status",
   "created_at": "2026-03-01T10:40:00Z",
   "updated_at": "2026-03-01T10:40:00Z",
@@ -126,6 +135,8 @@ This is intended for external login handoff flows where a user completes login i
 ```
 
 **Side effects:** starts in-memory login state and background bootstrap attempt; writes Blinkit session to store on success.
+
+Operational note: the worker now serves cached `/status` snapshots even while `/bootstrap` is waiting for human login, so `login_status` can remain responsive during the login window.
 
 If a Blinkit login flow is already `pending`, a repeated `start_login` call returns that same pending `login_id` (does not start a second concurrent flow).
 

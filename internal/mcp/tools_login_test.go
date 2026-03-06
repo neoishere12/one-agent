@@ -63,6 +63,65 @@ func TestStartLoginBlinkitCompletes(t *testing.T) {
 	}
 }
 
+func TestStartLoginUsesPortalURLWhenConfigured(t *testing.T) {
+	t.Setenv("BLINKIT_BROWSER_WORKER_URL", "http://worker.local")
+	t.Setenv("MCP_PUBLIC_BASE_URL", "https://agent.example.com")
+	t.Setenv("BLINKIT_EXTERNAL_LOGIN_URL_TEMPLATE", "https://login.example.com/vnc.html?login_id={login_id_escaped}&target={target_url_escaped}")
+	stubBlinkitWorkerStatus(t, func(ctx context.Context) (*blinkit.BrowserWorkerStatus, error) {
+		return &blinkit.BrowserWorkerStatus{OK: true}, nil
+	})
+
+	release := make(chan struct{})
+	stubBlinkitBootstrap(t, func(ctx context.Context, st *store.Store) (*types.AppSession, error) {
+		<-release
+		return fixtureBlinkitSession(time.Now()), nil
+	})
+
+	st := newTestStore(t)
+	server := newServerForTests(st, map[types.Platform]platforms.Platform{})
+	result, err := server.call(context.Background(), "start_login", mustRaw(t, map[string]any{"app": "blinkit"}))
+	if err != nil {
+		t.Fatalf("start_login failed: %v", err)
+	}
+	start := result.(loginStatusOutput)
+	if !strings.HasPrefix(start.LoginURL, "https://agent.example.com/login/blinkit?login_id=") {
+		t.Fatalf("expected portal login_url, got %q", start.LoginURL)
+	}
+	if !strings.Contains(start.Message, "Open login_url") {
+		t.Fatalf("expected remote browser handoff message, got %q", start.Message)
+	}
+	close(release)
+}
+
+func TestStartLoginUsesDirectExternalURLWithoutPortal(t *testing.T) {
+	t.Setenv("BLINKIT_BROWSER_WORKER_URL", "http://worker.local")
+	t.Setenv("BLINKIT_EXTERNAL_LOGIN_URL_TEMPLATE", "https://login.example.com/vnc.html?login_id={login_id_escaped}&target={target_url_escaped}")
+	stubBlinkitWorkerStatus(t, func(ctx context.Context) (*blinkit.BrowserWorkerStatus, error) {
+		return &blinkit.BrowserWorkerStatus{OK: true}, nil
+	})
+
+	release := make(chan struct{})
+	stubBlinkitBootstrap(t, func(ctx context.Context, st *store.Store) (*types.AppSession, error) {
+		<-release
+		return fixtureBlinkitSession(time.Now()), nil
+	})
+
+	st := newTestStore(t)
+	server := newServerForTests(st, map[types.Platform]platforms.Platform{})
+	result, err := server.call(context.Background(), "start_login", mustRaw(t, map[string]any{"app": "blinkit"}))
+	if err != nil {
+		t.Fatalf("start_login failed: %v", err)
+	}
+	start := result.(loginStatusOutput)
+	if !strings.HasPrefix(start.LoginURL, "https://login.example.com/vnc.html?login_id=") {
+		t.Fatalf("expected direct external login_url, got %q", start.LoginURL)
+	}
+	if !strings.Contains(start.LoginURL, "target=https%3A%2F%2Fblinkit.com%2F") {
+		t.Fatalf("expected encoded Blinkit target URL, got %q", start.LoginURL)
+	}
+	close(release)
+}
+
 func TestStartLoginBlinkitFailureMarksHumanVerification(t *testing.T) {
 	t.Setenv("BLINKIT_BROWSER_WORKER_URL", "http://worker.local")
 	stubBlinkitWorkerStatus(t, func(ctx context.Context) (*blinkit.BrowserWorkerStatus, error) {

@@ -265,6 +265,23 @@ curl -s http://127.0.0.1:8080/mcp \
   -d '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"bootstrap_blinkit_web_session","arguments":{"timeout_seconds":300}}}'
 ```
 
+### 2b) Optional phone-friendly remote login handoff
+
+If you want `start_login` to return a link that can be opened directly on iPhone, configure:
+
+```bash
+cat >> /etc/shopping-agent.env <<'EOF'
+MCP_PUBLIC_BASE_URL=https://<your-public-mcp-domain>
+BLINKIT_EXTERNAL_LOGIN_URL_TEMPLATE=https://<your-remote-browser-ui>/vnc.html?autoconnect=true&login_id={login_id_escaped}&target={target_url_escaped}
+EOF
+```
+
+Notes:
+- `MCP_PUBLIC_BASE_URL` makes `start_login` return a built-in login portal URL: `/login/blinkit?login_id=...`
+- `BLINKIT_EXTERNAL_LOGIN_URL_TEMPLATE` is the actual remote-browser UI the portal links to
+- The remote browser UI must control the same Blinkit profile used by the worker
+- On an SSH-only VPS this usually means `xvfb + x11vnc + noVNC` (or your own remote-browser service)
+
 ### 3) Enable browser mode in server env
 
 For direct shell runs:

@@ -2,12 +2,17 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"one-agent/internal/platforms"
+	"one-agent/internal/platforms/blinkit"
+	"one-agent/internal/store"
 	"one-agent/internal/types"
 )
 
@@ -184,4 +189,47 @@ func TestServeHTTPSSEPostIsMethodNotAllowed(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d: %s", w.Code, w.Body.String())
 	}
+}
+
+func TestServeHTTPLoginPortalRendersPendingFlow(t *testing.T) {
+	t.Setenv("BLINKIT_BROWSER_WORKER_URL", "http://worker.local")
+	t.Setenv("MCP_PUBLIC_BASE_URL", "https://agent.example.com")
+	t.Setenv("BLINKIT_EXTERNAL_LOGIN_URL_TEMPLATE", "https://login.example.com/vnc.html?login_id={login_id_escaped}")
+	stubBlinkitWorkerStatus(t, func(ctx context.Context) (*blinkit.BrowserWorkerStatus, error) {
+		return &blinkit.BrowserWorkerStatus{
+			OK:                 true,
+			PageURL:            "about:blank",
+			AccessTokenPresent: false,
+			AuthKeyPresent:     false,
+		}, nil
+	})
+
+	release := make(chan struct{})
+	stubBlinkitBootstrap(t, func(ctx context.Context, st *store.Store) (*types.AppSession, error) {
+		<-release
+		return fixtureBlinkitSession(time.Now()), nil
+	})
+
+	st := newTestStore(t)
+	server := newServerForTests(st, map[types.Platform]platforms.Platform{})
+	result, err := server.call(context.Background(), "start_login", mustRaw(t, map[string]any{"app": "blinkit"}))
+	if err != nil {
+		t.Fatalf("start_login failed: %v", err)
+	}
+	start := result.(loginStatusOutput)
+
+	req := httptest.NewRequest(http.MethodGet, "/login/blinkit?login_id="+start.LoginID, nil)
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Open Remote Browser") {
+		t.Fatalf("expected remote browser button, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), start.LoginID) {
+		t.Fatalf("expected login id in portal page, got %s", w.Body.String())
+	}
+	close(release)
 }

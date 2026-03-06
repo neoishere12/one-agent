@@ -188,32 +188,58 @@ func (s *Server) handleLoginPortal(w http.ResponseWriter, r *http.Request) bool 
 
 	loginID := strings.TrimSpace(r.URL.Query().Get("login_id"))
 	if loginID == "" {
-		writeLoginPortalHTML(w, http.StatusBadRequest, loginPortalView{
-			Status:  loginStatusFailed,
-			Message: "Missing login_id query parameter",
-		})
+		writeLoginPortalHTML(w, http.StatusBadRequest, missingLoginPortalView())
 		return true
 	}
 
+	status, found := s.loginPortalStatus(r, loginID)
+	if !found {
+		writeLoginPortalHTML(w, http.StatusNotFound, expiredLoginPortalView(loginID))
+		return true
+	}
+	writeLoginPortalHTML(w, http.StatusOK, loginPortalViewFromStatus(status))
+	return true
+}
+
+func writeLoginPortalHTML(w http.ResponseWriter, statusCode int, view loginPortalView) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Ingest-Secret")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(statusCode)
+	_ = blinkitLoginPortalTemplate.Execute(w, view)
+}
+
+func missingLoginPortalView() loginPortalView {
+	return loginPortalView{
+		Status:  loginStatusFailed,
+		Message: "Missing login_id query parameter",
+	}
+}
+
+func expiredLoginPortalView(loginID string) loginPortalView {
+	return loginPortalView{
+		LoginID:   loginID,
+		Status:    loginStatusFailed,
+		Message:   "Login flow not found or has expired",
+		ExpiresAt: "",
+	}
+}
+
+func (s *Server) loginPortalStatus(r *http.Request, loginID string) (loginStatusOutput, bool) {
 	status, ok := s.loginFlows.get(loginID)
 	if !ok || status.App != "blinkit" {
-		writeLoginPortalHTML(w, http.StatusNotFound, loginPortalView{
-			LoginID:   loginID,
-			Status:    loginStatusFailed,
-			Message:   "Login flow not found or has expired",
-			ExpiresAt: "",
-		})
-		return true
+		return loginStatusOutput{}, false
 	}
-
-	if status.App == "blinkit" {
-		worker := s.fetchBlinkitWorkerStatus(r.Context(), defaultBlinkitWorkerStatusTimeout)
-		status.Worker = &worker
-		if status.Status == loginStatusPending && worker.ChallengeDetected {
-			status.NeedsHumanVerification = true
-		}
+	worker := s.fetchBlinkitWorkerStatus(r.Context(), defaultBlinkitWorkerStatusTimeout)
+	status.Worker = &worker
+	if status.Status == loginStatusPending && worker.ChallengeDetected {
+		status.NeedsHumanVerification = true
 	}
+	return status, true
+}
 
+func loginPortalViewFromStatus(status loginStatusOutput) loginPortalView {
 	view := loginPortalView{
 		LoginID:       status.LoginID,
 		Status:        status.Status,
@@ -226,13 +252,5 @@ func (s *Server) handleLoginPortal(w http.ResponseWriter, r *http.Request) bool 
 	if status.Worker != nil {
 		view.WorkerMessage = status.Worker.Message
 	}
-	writeLoginPortalHTML(w, http.StatusOK, view)
-	return true
-}
-
-func writeLoginPortalHTML(w http.ResponseWriter, statusCode int, view loginPortalView) {
-	writeCORSHeaders(w)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = blinkitLoginPortalTemplate.Execute(w, view)
+	return view
 }
